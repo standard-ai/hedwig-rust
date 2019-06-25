@@ -1,0 +1,30 @@
+[package]
+name = "hedwig"
+version = "0.1.0"
+authors = ["Aniruddha Maru <aniruddhamaru@gmail.com>"]
+edition = "2018"
+repository = "https://github.com/standard-ai/hedwig-rust.git"
+homepage = "https://github.com/standard-ai/hedwig-rust.git"
+readme = "README.md"
+description = "A simple message bus for Rust"
+
+[dependencies]
+base64 = "^0.10"
+failure = "^0.1"
+google-pubsub1 = "*"
+# This project intentionally uses an old version of Hyper. See
+# https://github.com/Byron/google-apis-rs/issues/173 for more
+# information.
+hyper = "^0.10"
+hyper-rustls = "^0.6"
+serde = { version = "^1.0", features = ["derive"] }
+serde_json = "^1.0"
+url = "^1.7"
+uuid = { version = "^0.7", features = ["serde", "v4"] }
+valico = { git = "https://github.com/rustless/valico", rev = "96fff73659624bdfe903b82a0853ac73dc7bf30b" }
+yup-oauth2 = "^1.0"
+
+[dev-dependencies]
+rust-embed="^4.3"
+strum = "^0.15"
+strum_macros = "^0.15"
