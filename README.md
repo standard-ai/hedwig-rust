@@ -1,6 +1,7 @@
 # Hedwig library for Rust
 
 [![Build Status](https://travis-ci.com/standard-ai/hedwig-rust.svg?branch=master)](https://travis-ci.com/standard-ai/hedwig-rust)
+[![Latest Version](https://img.shields.io/crates/v/hedwig.svg?style=flat-square)](https://crates.io/crates/hedwig)
 
 ## What is it?
 

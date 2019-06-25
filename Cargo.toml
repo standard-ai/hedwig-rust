@@ -8,10 +8,12 @@ homepage = "https://github.com/standard-ai/hedwig-rust.git"
 readme = "README.md"
 description = "A simple message bus for Rust"
 license = "Apache-2.0"
+keywords = ["pubsub", "message bus", "microservices"]
 
 [badges]
 travis-ci = { repository = "standard-ai/hedwig-rust" }
 coveralls = { repository = "standard-ai/hedwig-rust" }
+maintenance = { status = "actively-developed" }
 
 [dependencies]
 base64 = "^0.10"
