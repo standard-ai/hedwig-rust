@@ -5,8 +5,8 @@
 ## What is it?
 
 Hedwig is a inter-service communication bus that works on AWS and GCP, while keeping things pretty simple and
-straight forward. It uses `json schema`_ `draft v4`_ for schema validation so all incoming
-and outgoing messages are validated against pre-defined schema.
+straight forward. It uses [json schema](http://json-schema.org/) [draft v4](http://json-schema.org/specification-links.html#draft-4)
+for schema validation so all incoming and outgoing messages are validated against pre-defined schema.
 
 Hedwig allows separation of concerns between consumers and publishers so your services are loosely coupled, and the
 contract is enforced by the schema validation. Hedwig may also be used to build asynchronous APIs.
