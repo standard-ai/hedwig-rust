@@ -1,7 +1,32 @@
-# hedwig-rust
-Hedwig library for Rust
+# Hedwig library for Rust
 
-Usage:
+[![Build Status](https://travis-ci.com/standard-ai/hedwig-rust.svg?branch=master)](https://travis-ci.com/standard-ai/hedwig-rust)
+
+## What is it?
+
+Hedwig is a inter-service communication bus that works on AWS and GCP, while keeping things pretty simple and
+straight forward. It uses `json schema`_ `draft v4`_ for schema validation so all incoming
+and outgoing messages are validated against pre-defined schema.
+
+Hedwig allows separation of concerns between consumers and publishers so your services are loosely coupled, and the
+contract is enforced by the schema validation. Hedwig may also be used to build asynchronous APIs.
+
+Support exists for [Python](https://github.com/Automatic/hedwig-python) and [Golang](https://github.com/Automatic/hedwig-go).
+
+For intra-service messaging, see [Taskhawk](https://github.com/Automatic/taskhawk-python).
+
+## Quick Start
+
+### Installation
+
+Add to Cargo.toml:
+```
+[dependencies]
+hedwig = "*"
+```
+
+### Usage
+
 ```rust
     let schema = r#"
 {
@@ -66,4 +91,10 @@ Usage:
     );
 ```
 
-See [the full running example](examples/publish.rs) in the repo.
+There's also a [full running example](examples/publish.rs) in the repo.
+
+## Getting Help
+
+We use GitHub issues for tracking bugs and feature requests.
+
+* If it turns out that you may have found a bug, please [open an issue](https://github.com/standard-ai/hedwig-rust/issues/new)
