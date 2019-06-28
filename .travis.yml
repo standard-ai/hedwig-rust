@@ -24,9 +24,9 @@ before_script:
   export PATH=$HOME/.local/bin:$PATH
 script:
 - |
-  travis-cargo build $flags &&
-  travis-cargo test $flags &&
-  travis-cargo doc $flags
+  travis-cargo build -- $flags &&
+  travis-cargo test -- $flags &&
+  travis-cargo doc -- $flags
 addons:
   apt:
     packages:
