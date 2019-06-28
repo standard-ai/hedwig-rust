@@ -5,18 +5,28 @@ rust:
 - nightly
 - beta
 - stable
+env:
+  flags=--all-features
 matrix:
   allow_failures:
   - rust: nightly
+  include:
+    # should also build with no features, as well as individual features selected
+    - rust: stable
+      env: flags=
+    - rust: stable
+      env: flags=--features=google
+    - rust: stable
+      env: flags=--features=mock
 before_script:
 - |
   pip install 'travis-cargo<0.2' --user &&
   export PATH=$HOME/.local/bin:$PATH
 script:
 - |
-  travis-cargo build &&
-  travis-cargo test &&
-  travis-cargo --only stable doc
+  travis-cargo build $flags &&
+  travis-cargo test $flags &&
+  travis-cargo doc $flags
 addons:
   apt:
     packages:

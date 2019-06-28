@@ -11,24 +11,33 @@
 //! A Hedwig library for Rust. Hedwig is a message bus that works with AWS SNS/SQS Google Cloud Pubsub, with messages
 //! validated using JSON schema. The publisher and consumer are de-coupled and fan-out is supported out of the box.
 
+#[cfg(feature = "mock")]
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::convert::From;
+#[cfg(feature = "google")]
 use std::default::Default;
 use std::fmt;
 use std::io;
+#[cfg(feature = "google")]
 use std::path::Path;
 use std::result::Result;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(feature = "google")]
 use base64;
 use failure::Fail;
+#[cfg(feature = "google")]
 use google_pubsub1::{self as pubsub1, Pubsub};
+#[cfg(feature = "google")]
 use hyper::{self, net::HttpsConnector, Client};
+#[cfg(feature = "google")]
 use hyper_rustls;
 use serde::Serialize;
 use serde_json;
 use uuid::Uuid;
 use valico::json_schema::{SchemaError, Scope, ValidationState};
+#[cfg(feature = "google")]
 use yup_oauth2 as oauth2;
 
 /// All errors that may be returned when instantiating a new Hedwig instance
@@ -62,6 +71,9 @@ pub enum MessageError {
     #[fail(display = "Unable to serialize message data")]
     SerializationError(#[cause] serde_json::Error),
 
+    #[fail(display = "Router failed to route message correctly")]
+    RouterError(&'static str),
+
     #[fail(display = "Message has invalid schema declaration: {}", _0)]
     MessageInvalidSchemaError(String),
 
@@ -79,21 +91,59 @@ pub enum PublishError {
     #[fail(display = "API failure occurred when publishing message")]
     PublishAPIFailure(String),
 
-    #[fail(display = "Router failed to route message correctly")]
-    RouterError(&'static str),
-
     #[fail(display = "Invalid from publish API: can't find published message id")]
     InvalidResponseNoMessageId(&'static str),
 }
 
-struct GooglePublisher {
-    client: Pubsub<Client, oauth2::ServiceAccountAccess<Client>>,
+/// A trait for message publishers. This may be used to implement custom behavior such as publish to <insert your
+/// favorite cloud platform>
+pub trait Publisher {
+    /// Publish a Hedwig message.
+    fn publish<D, T>(&self, message: Message<D, T>) -> Result<String, PublishError>
+    where
+        D: Serialize;
 }
 
+/// A publisher that uses Google PubSub
+#[cfg(feature = "google")]
+#[allow(missing_debug_implementations)]
+pub struct GooglePublisher {
+    client: Pubsub<Client, oauth2::ServiceAccountAccess<Client>>,
+    google_cloud_project: String,
+}
+
+#[cfg(feature = "google")]
 impl GooglePublisher {
-    fn new(google_application_credentials: &Path) -> Result<GooglePublisher, HedwigError> {
+    /// Create a new instance of GooglePublisher
+    /// For now, this requires explicitly passing in the path to your credentials file, as well as the name of the
+    /// project where pubsub infra lives
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # #[cfg(feature = "google")]
+    /// # use hedwig::{Publisher, GooglePublisher};
+    ///
+    /// # fn main() -> Result<(), failure::Error> {
+    ///
+    /// # #[cfg(feature = "google")]
+    /// let publisher = GooglePublisher::new(String::from("/home/.google-key.json"), "myproject".into())?;
+    ///
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn new<P>(
+        google_application_credentials: P,
+        google_cloud_project: String,
+    ) -> Result<GooglePublisher, HedwigError>
+    where
+        P: AsRef<Path>,
+    {
         let client_secret = oauth2::service_account_key_from_file(
-            &google_application_credentials.to_string_lossy().into(),
+            &google_application_credentials
+                .as_ref()
+                .to_string_lossy()
+                .into(),
         )
         .map_err(HedwigError::CredentialsIOError)?;
         let auth_https = HttpsConnector::new(hyper_rustls::TlsClient::new());
@@ -106,14 +156,16 @@ impl GooglePublisher {
 
         let client = Pubsub::new(pubsub_client, access);
 
-        Ok(GooglePublisher { client })
+        Ok(GooglePublisher {
+            client,
+            google_cloud_project: String::from(google_cloud_project),
+        })
     }
+}
 
-    fn publish<D, T>(
-        &self,
-        message: Message<D, T>,
-        hedwig: &Hedwig<T>,
-    ) -> Result<String, PublishError>
+#[cfg(feature = "google")]
+impl Publisher for GooglePublisher {
+    fn publish<D, T>(&self, message: Message<D, T>) -> Result<String, PublishError>
     where
         D: Serialize,
     {
@@ -126,13 +178,17 @@ impl GooglePublisher {
             ..Default::default()
         };
 
+        let topic_path = format!(
+            "projects/{}/topics/hedwig-{}",
+            self.google_cloud_project, message.topic
+        );
         let request = pubsub1::PublishRequest {
             messages: Some(vec![pubsub_message]),
         };
         let result = self
             .client
             .projects()
-            .topics_publish(request, message.topic(hedwig)?.as_str())
+            .topics_publish(request, topic_path.as_ref())
             .doit();
 
         match result {
@@ -152,6 +208,61 @@ impl GooglePublisher {
                     .unwrap_or(Err(PublishError::InvalidResponseNoMessageId(not_found)))
             }
         }
+    }
+}
+
+#[cfg(feature = "mock")]
+#[derive(Debug, Default)]
+/// A mock publisher that doesn't publish messages, but just stores them in-memory for later verification
+/// This is useful primarily in tests.
+///
+/// # Examples
+///
+/// ```
+/// # #[cfg(feature = "mock")]
+/// use hedwig::MockPublisher;
+///
+/// # #[cfg(feature = "mock")]
+/// let publisher = MockPublisher::default();
+/// ```
+pub struct MockPublisher {
+    // `RefCell` for interior mutability
+    published_messages: RefCell<HashMap<Uuid, (String, HashMap<String, String>)>>,
+}
+
+#[cfg(feature = "mock")]
+impl MockPublisher {
+    /// Verify that a message was published. This method asserts that the message you expected to be published, was
+    /// indeed published
+    pub fn assert_message_published<D, T>(
+        &self,
+        message: &Message<D, T>,
+        headers: &HashMap<String, String>,
+    ) where
+        D: Serialize,
+    {
+        let published_messages = self.published_messages.borrow();
+        let (published, published_headers) = published_messages
+            .get(&message.id)
+            .expect("message not found");
+        let serialized = serde_json::to_string(&message).unwrap();
+        assert_eq!(published, &serialized);
+        assert_eq!(published_headers, headers);
+    }
+}
+
+#[cfg(feature = "mock")]
+impl Publisher for MockPublisher {
+    fn publish<D, T>(&self, message: Message<D, T>) -> Result<String, PublishError>
+    where
+        D: Serialize,
+    {
+        let serialized =
+            serde_json::to_string(&message).map_err(PublishError::SerializationError)?;
+        self.published_messages
+            .borrow_mut()
+            .insert(message.id, (serialized, message.headers()));
+        Ok(String::new())
     }
 }
 
@@ -250,6 +361,10 @@ pub type MessageRouter<T> = fn(&T, &MajorVersion) -> Option<&'static str>;
 ///
 /// ```no_run
 /// use hedwig::{Hedwig, MajorVersion, MinorVersion, Version};
+/// # #[cfg(feature = "google")]
+/// # use hedwig::GooglePublisher;
+/// # #[cfg(feature = "mock")]
+/// # use hedwig::MockPublisher;
 /// # use std::path::Path;
 /// # use serde::Serialize;
 /// # use strum_macros::IntoStaticStr;
@@ -306,34 +421,44 @@ pub type MessageRouter<T> = fn(&T, &MajorVersion) -> Option<&'static str>;
 ///         }
 ///     }
 ///
+///     # #[cfg(feature = "google")]
+///     # let publisher = GooglePublisher::new(String::from("/home/.google-key.json"), "myproject".into())?;
+///
+///     # #[cfg(feature = "mock")]
+///     # let publisher = MockPublisher::default();
+///
+///     # #[cfg(any(feature = "google", feature="mock"))]
 ///     let hedwig = Hedwig::new(
 ///         schema,
 ///         "myapp",
-///         String::from("/home/.google-key.json"),
-///         "myproject".into(),
+///         publisher,
 ///         router,
 ///     )?;
 ///
+///     # #[cfg(any(feature = "google", feature="mock"))]
 ///     let message = hedwig.message(
 ///         MessageType::UserCreated,
 ///         Version(MajorVersion(1), MinorVersion(0)),
 ///         UserCreatedData { user_id: "U_123".into() },
 ///     )?;
 ///
+///     # #[cfg(any(feature = "google", feature="mock"))]
 ///     hedwig.publish(message)?;
 ///     # Ok(())
 /// # }
 /// ```
 #[allow(missing_debug_implementations)]
-pub struct Hedwig<T> {
+pub struct Hedwig<T, P> {
     validator: Validator,
     publisher_name: String,
-    google_cloud_project: String,
     message_router: MessageRouter<T>,
-    publisher: GooglePublisher,
+    publisher: P,
 }
 
-impl<T> Hedwig<T> {
+impl<T, P> Hedwig<T, P>
+where
+    P: Publisher,
+{
     /// Creates a new Hedwig instance. Application credentials cannot be auto-discovered in Google Cloud environment
     /// unlike the Python library.
     ///
@@ -341,23 +466,19 @@ impl<T> Hedwig<T> {
     ///
     /// * schema: The JSON schema content. It's up to the caller to read the schema from a file.
     /// * publisher name: Name of the publisher service. This will be part of the metadata in the message.
-    /// * google_application_credentials - Path to the google credentials file.
-    /// * google_cloud_project - The Google Cloud project where your pubsub resources lie - this /may be/ different
-    /// from the credentials.
+    /// * publisher - An implementation of Publisher
     /// * message_router - A function that can route messages to topics
-    pub fn new<P: AsRef<Path>>(
+    pub fn new(
         schema: &str,
         publisher_name: &str,
-        google_application_credentials: P,
-        google_cloud_project: String,
+        publisher: P,
         message_router: MessageRouter<T>,
-    ) -> Result<Hedwig<T>, HedwigError> {
+    ) -> Result<Hedwig<T, P>, HedwigError> {
         Ok(Hedwig {
             validator: Validator::new(schema)?,
             publisher_name: String::from(publisher_name),
-            google_cloud_project,
             message_router,
-            publisher: GooglePublisher::new(google_application_credentials.as_ref())?,
+            publisher,
         })
     }
 
@@ -380,7 +501,12 @@ impl<T> Hedwig<T> {
     {
         Message::new(&self, data_type, data_schema_version, data)
     }
+}
 
+impl<T, P> Hedwig<T, P>
+where
+    P: Publisher,
+{
     /// Publish a message using the configured publisher. Returns the Pubsub message id if successful.
     ///
     /// # Arguments
@@ -389,14 +515,13 @@ impl<T> Hedwig<T> {
     pub fn publish<D>(&self, message: Message<D, T>) -> Result<String, PublishError>
     where
         D: Serialize,
-        T: Copy + Eq,
     {
-        self.publisher.publish(message, self)
+        self.publisher.publish(message)
     }
 }
 
 /// Additional metadata associated with a message
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Metadata {
     /// The timestamp when message was created in the publishing service
     pub timestamp: u128,
@@ -411,7 +536,7 @@ pub struct Metadata {
 const FORMAT_VERSION_V1: Version = Version(MajorVersion(1), MinorVersion(0));
 
 /// Message represents an instance of a message on the message bus.
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Message<D, T> {
     /// Message identifier. Automatically created by the library.
     pub id: Uuid,
@@ -435,11 +560,14 @@ pub struct Message<D, T> {
     /// Schema version of the data object. This should follow semver.
     #[serde(skip)]
     pub data_schema_version: Version,
+
+    #[serde(skip)]
+    topic: String,
 }
 
 impl<D, T> Message<D, T> {
-    fn new(
-        hedwig: &Hedwig<T>,
+    fn new<P>(
+        hedwig: &Hedwig<T, P>,
         data_type: T,
         data_schema_version: Version,
         data: D,
@@ -451,6 +579,12 @@ impl<D, T> Message<D, T> {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards");
+
+        let topic = match (hedwig.message_router)(&data_type, &data_schema_version.0) {
+            Some(t) => t,
+            None => return Err(MessageError::RouterError("Topic not found")),
+        }
+        .to_owned();
 
         let message = Message {
             id: Uuid::new_v4(),
@@ -470,6 +604,7 @@ impl<D, T> Message<D, T> {
             format_version: FORMAT_VERSION_V1,
             data_type,
             data_schema_version,
+            topic,
         };
         hedwig.validator.validate(&message)?;
         Ok(message)
@@ -492,20 +627,8 @@ impl<D, T> Message<D, T> {
     }
 }
 
-impl<D, T> Message<D, T> {
-    fn topic(&self, hedwig: &Hedwig<T>) -> Result<String, PublishError> {
-        let topic = match (hedwig.message_router)(&self.data_type, &self.data_schema_version.0) {
-            Some(t) => t,
-            None => return Err(PublishError::RouterError("Topic not found")),
-        };
-        Ok(format!(
-            "projects/{}/topics/hedwig-{}",
-            hedwig.google_cloud_project, topic
-        ))
-    }
-}
-
 #[cfg(test)]
+#[cfg(feature = "mock")]
 mod tests {
     use super::*;
 
@@ -564,15 +687,8 @@ mod tests {
         }
     }
 
-    fn mock_hedwig() -> Hedwig<MessageType> {
-        Hedwig::new(
-            SCHEMA,
-            "myapp",
-            String::from("tests/google-key.json"),
-            "myproject".into(),
-            router,
-        )
-        .unwrap()
+    fn mock_hedwig() -> Hedwig<MessageType, MockPublisher> {
+        Hedwig::new(SCHEMA, "myapp", MockPublisher::default(), router).unwrap()
     }
 
     #[test]
@@ -599,7 +715,8 @@ mod tests {
     #[test]
     fn message_set_headers() {
         let mut custom_headers = HashMap::new();
-        custom_headers.insert("request_id".to_owned(), "foo".to_owned());
+        let request_id = Uuid::new_v4().to_string();
+        custom_headers.insert("request_id".to_owned(), request_id.clone());
         let hedwig = mock_hedwig();
         let mut message = hedwig
             .message(
@@ -612,7 +729,7 @@ mod tests {
             .unwrap();
         message.with_headers(custom_headers);
         assert_eq!(
-            "foo",
+            request_id,
             message
                 .metadata
                 .headers
@@ -637,5 +754,27 @@ mod tests {
             .unwrap();
         message.with_id(id.clone());
         assert_eq!(id, message.id);
+    }
+
+    #[test]
+    fn publish() {
+        let hedwig = mock_hedwig();
+        let mut custom_headers = HashMap::new();
+        let request_id = Uuid::new_v4().to_string();
+        custom_headers.insert("request_id".to_owned(), request_id.clone());
+        let mut message = hedwig
+            .message(
+                MessageType::UserCreated,
+                VERSION_1_0,
+                UserCreatedData {
+                    user_id: "U_123".into(),
+                },
+            )
+            .unwrap();
+        message.with_headers(custom_headers.clone());
+        hedwig.publish(message.clone()).unwrap();
+        hedwig
+            .publisher
+            .assert_message_published(&message, &custom_headers);
     }
 }
