@@ -10,6 +10,99 @@
 
 //! A Hedwig library for Rust. Hedwig is a message bus that works with AWS SNS/SQS Google Cloud Pubsub, with messages
 //! validated using JSON schema. The publisher and consumer are de-coupled and fan-out is supported out of the box.
+//!
+//! # Examples
+//!
+//! Publish a new message
+//!
+//! ```no_run
+//! use hedwig::{Hedwig, MajorVersion, MinorVersion, Version};
+//! # #[cfg(feature = "google")]
+//! # use hedwig::GooglePublisher;
+//! # #[cfg(feature = "mock")]
+//! # use hedwig::MockPublisher;
+//! # use std::path::Path;
+//! # use serde::Serialize;
+//! # use strum_macros::IntoStaticStr;
+//!
+//! fn main() -> Result<(), failure::Error> {
+//! let schema = r#"
+//!     {
+//!       "$id": "https://hedwig.standard.ai/schema",
+//!       "$schema": "http://json-schema.org/draft-04/schema#",
+//!       "description": "Example Schema",
+//!       "schemas": {
+//!           "user-created": {
+//!               "1.*": {
+//!                   "description": "A new user was created",
+//!                   "type": "object",
+//!                   "x-versions": [
+//!                       "1.0"
+//!                   ],
+//!                   "required": [
+//!                       "user_id"
+//!                   ],
+//!                   "properties": {
+//!                       "user_id": {
+//!                           "$ref": "https://hedwig.standard.ai/schema#/definitions/UserId/1.0"
+//!                       }
+//!                   }
+//!               }
+//!           }
+//!       },
+//!       "definitions": {
+//!           "UserId": {
+//!               "1.0": {
+//!                   "type": "string"
+//!               }
+//!           }
+//!       }
+//!     }"#;
+//!
+//!     # #[derive(Clone, Copy, IntoStaticStr, Hash, PartialEq, Eq)]
+//!     # enum MessageType {
+//!     #    #[strum(serialize = "user.created")]
+//!     #    UserCreated,
+//!     # }
+//!     #
+//!     # #[derive(Serialize)]
+//!     # struct UserCreatedData {
+//!     #     user_id: String,
+//!     # }
+//!     #
+//!     fn router(t: &MessageType, v: &MajorVersion) -> Option<&'static str> {
+//!         match (t, v) {
+//!             (&MessageType::UserCreated, &MajorVersion(1)) => Some("dev-user-created-v1"),
+//!             _ => None,
+//!         }
+//!     }
+//!
+//!     // create a publisher instance
+//!     # #[cfg(feature = "google")]
+//!     # let publisher = GooglePublisher::new(String::from("/home/.google-key.json"), "myproject".into())?;
+//!     # #[cfg(feature = "mock")]
+//!     # let publisher = MockPublisher::default();
+//!     # #[cfg(any(feature = "google", feature="mock"))]
+//!
+//!     let hedwig = Hedwig::new(
+//!         schema,
+//!         "myapp",
+//!         publisher,
+//!         router,
+//!     )?;
+//!
+//!     # #[cfg(any(feature = "google", feature="mock"))]
+//!     let message = hedwig.message(
+//!         MessageType::UserCreated,
+//!         Version(MajorVersion(1), MinorVersion(0)),
+//!         UserCreatedData { user_id: "U_123".into() },
+//!     )?;
+//!
+//!     # #[cfg(any(feature = "google", feature="mock"))]
+//!     hedwig.publish(message)?;
+//!     # Ok(())
+//! # }
+//! ```
 
 #[cfg(feature = "mock")]
 use std::cell::RefCell;
@@ -95,8 +188,8 @@ pub enum PublishError {
     InvalidResponseNoMessageId(&'static str),
 }
 
-/// A trait for message publishers. This may be used to implement custom behavior such as publish to <insert your
-/// favorite cloud platform>
+/// A trait for message publishers. This may be used to implement custom behavior such as publish to \<insert your
+/// favorite cloud platform\>.
 pub trait Publisher {
     /// Publish a Hedwig message.
     fn publish<D, T>(&self, message: Message<D, T>) -> Result<String, PublishError>
@@ -105,6 +198,18 @@ pub trait Publisher {
 }
 
 /// A publisher that uses Google PubSub
+///
+/// # Examples
+///
+/// ```no_run
+/// # #[cfg(feature = "google")]
+/// # use hedwig::{Publisher, GooglePublisher};
+/// # fn main() -> Result<(), failure::Error> {
+/// # #[cfg(feature = "google")]
+/// let publisher = GooglePublisher::new(String::from("/home/.google-key.json"), "myproject".into())?;
+/// # Ok(())
+/// # }
+/// ```
 #[cfg(feature = "google")]
 #[allow(missing_debug_implementations)]
 pub struct GooglePublisher {
@@ -116,22 +221,13 @@ pub struct GooglePublisher {
 impl GooglePublisher {
     /// Create a new instance of GooglePublisher
     /// For now, this requires explicitly passing in the path to your credentials file, as well as the name of the
-    /// project where pubsub infra lives
+    /// project where pubsub infra lives.
     ///
-    /// # Examples
+    /// # Arguments
     ///
-    /// ```no_run
-    /// # #[cfg(feature = "google")]
-    /// # use hedwig::{Publisher, GooglePublisher};
-    ///
-    /// # fn main() -> Result<(), failure::Error> {
-    ///
-    /// # #[cfg(feature = "google")]
-    /// let publisher = GooglePublisher::new(String::from("/home/.google-key.json"), "myproject".into())?;
-    ///
-    /// # Ok(())
-    /// # }
-    /// ```
+    /// * google_application_credentials - Path to the google credentials file.
+    /// * google_cloud_project - The Google Cloud project where your pubsub resources lie - this /may be/ different
+    /// from the credentials.
     pub fn new<P>(
         google_application_credentials: P,
         google_cloud_project: String,
@@ -165,6 +261,7 @@ impl GooglePublisher {
 
 #[cfg(feature = "google")]
 impl Publisher for GooglePublisher {
+    /// Publishes a message on Google Pubsub and returns a pubsub id (usually an integer).
     fn publish<D, T>(&self, message: Message<D, T>) -> Result<String, PublishError>
     where
         D: Serialize,
@@ -350,103 +447,27 @@ impl Serialize for Version {
 }
 
 /// MessageRouter is a function that can route messages of a given type and version to a Hedwig topic.
-/// This may be implemented using a Hashmap
+///
+/// # Examples
+/// ```
+/// # use serde::Serialize;
+/// # use strum_macros::IntoStaticStr;
+/// use hedwig::{MajorVersion, MessageRouter};
+///
+/// # #[derive(Clone, Copy, IntoStaticStr, Hash, PartialEq, Eq)]
+/// # enum MessageType {
+/// #    #[strum(serialize = "user.created")]
+/// #    UserCreated,
+/// # }
+/// #
+/// let r: MessageRouter<MessageType> = |t, v| match (t, v) {
+///     (&MessageType::UserCreated, &MajorVersion(1)) => Some("user-created-v1"),
+///     _ => None,
+/// };
+/// ```
 pub type MessageRouter<T> = fn(&T, &MajorVersion) -> Option<&'static str>;
 
 /// Central instance to access all Hedwig related resources
-///
-/// # Examples
-///
-/// Publish a new message
-///
-/// ```no_run
-/// use hedwig::{Hedwig, MajorVersion, MinorVersion, Version};
-/// # #[cfg(feature = "google")]
-/// # use hedwig::GooglePublisher;
-/// # #[cfg(feature = "mock")]
-/// # use hedwig::MockPublisher;
-/// # use std::path::Path;
-/// # use serde::Serialize;
-/// # use strum_macros::IntoStaticStr;
-///
-/// fn main() -> Result<(), failure::Error> {
-/// let schema = r#"
-///     {
-///       "$id": "https://hedwig.standard.ai/schema",
-///       "$schema": "http://json-schema.org/draft-04/schema#",
-///       "description": "Example Schema",
-///       "schemas": {
-///           "user-created": {
-///               "1.*": {
-///                   "description": "A new user was created",
-///                   "type": "object",
-///                   "x-versions": [
-///                       "1.0"
-///                   ],
-///                   "required": [
-///                       "user_id"
-///                   ],
-///                   "properties": {
-///                       "user_id": {
-///                           "$ref": "https://hedwig.standard.ai/schema#/definitions/UserId/1.0"
-///                       }
-///                   }
-///               }
-///           }
-///       },
-///       "definitions": {
-///           "UserId": {
-///               "1.0": {
-///                   "type": "string"
-///               }
-///           }
-///       }
-///     }"#;
-///
-///     # #[derive(Clone, Copy, IntoStaticStr, Hash, PartialEq, Eq)]
-///     # enum MessageType {
-///     #    #[strum(serialize = "user.created")]
-///     #    UserCreated,
-///     # }
-///     #
-///     # #[derive(Serialize)]
-///     # struct UserCreatedData {
-///     #     user_id: String,
-///     # }
-///     #
-///     fn router(t: &MessageType, v: &MajorVersion) -> Option<&'static str> {
-///         match (t, v) {
-///             (&MessageType::UserCreated, &MajorVersion(1)) => Some("dev-user-created-v1"),
-///             _ => None,
-///         }
-///     }
-///
-///     # #[cfg(feature = "google")]
-///     # let publisher = GooglePublisher::new(String::from("/home/.google-key.json"), "myproject".into())?;
-///
-///     # #[cfg(feature = "mock")]
-///     # let publisher = MockPublisher::default();
-///
-///     # #[cfg(any(feature = "google", feature="mock"))]
-///     let hedwig = Hedwig::new(
-///         schema,
-///         "myapp",
-///         publisher,
-///         router,
-///     )?;
-///
-///     # #[cfg(any(feature = "google", feature="mock"))]
-///     let message = hedwig.message(
-///         MessageType::UserCreated,
-///         Version(MajorVersion(1), MinorVersion(0)),
-///         UserCreatedData { user_id: "U_123".into() },
-///     )?;
-///
-///     # #[cfg(any(feature = "google", feature="mock"))]
-///     hedwig.publish(message)?;
-///     # Ok(())
-/// # }
-/// ```
 #[allow(missing_debug_implementations)]
 pub struct Hedwig<T, P> {
     validator: Validator,
@@ -501,13 +522,9 @@ where
     {
         Message::new(&self, data_type, data_schema_version, data)
     }
-}
 
-impl<T, P> Hedwig<T, P>
-where
-    P: Publisher,
-{
-    /// Publish a message using the configured publisher. Returns the Pubsub message id if successful.
+    /// Publish a message using the configured publisher. Returns the publish id if successful. The publish id depends
+    /// on your publisher.
     ///
     /// # Arguments
     ///
@@ -538,13 +555,13 @@ const FORMAT_VERSION_V1: Version = Version(MajorVersion(1), MinorVersion(0));
 /// Message represents an instance of a message on the message bus.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Message<D, T> {
-    /// Message identifier. Automatically created by the library.
+    /// Message identifier
     pub id: Uuid,
 
     /// Metadata associated with the message
     pub metadata: Metadata,
 
-    /// Message schema, e.g. http://hedwig.standard.ai/schemas#/schemas/user.created/1.0
+    /// Message schema, e.g. `http://hedwig.standard.ai/schemas#/schemas/user.created/1.0`
     pub schema: String,
 
     /// Associated message data
@@ -610,13 +627,13 @@ impl<D, T> Message<D, T> {
         Ok(message)
     }
 
-    /// Add custom headers to the message
+    /// Add custom headers to the message. This may be used to track `request_id`, for example.
     pub fn with_headers(&mut self, headers: HashMap<String, String>) -> &mut Self {
         (&mut self.metadata).headers = headers;
         self
     }
 
-    /// Add custom id to the message
+    /// Add custom id to the message. If not provided, a new uuid v4 is used.
     pub fn with_id(&mut self, id: Uuid) -> &mut Self {
         self.id = id;
         self
