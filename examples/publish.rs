@@ -37,7 +37,7 @@ fn main() -> Result<(), failure::Error> {
     let schema = r#"
 {
   "$id": "https://hedwig.standard.ai/schema",
-  "$schema": "http://json-schema.org/draft-04/schema#",
+  "$schema": "https://json-schema.org/draft-04/schema#",
   "description": "Example Schema",
   "schemas": {
       "user.created": {

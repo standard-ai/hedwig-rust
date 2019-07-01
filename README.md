@@ -2,11 +2,12 @@
 
 [![Build Status](https://travis-ci.com/standard-ai/hedwig-rust.svg?branch=master)](https://travis-ci.com/standard-ai/hedwig-rust)
 [![Latest Version](https://img.shields.io/crates/v/hedwig.svg?style=flat-square)](https://crates.io/crates/hedwig)
+[![Docs](https://docs.rs/hedwig/badge.svg)](https://docs.rs/hedwig)
 
 ## What is it?
 
 Hedwig is a inter-service communication bus that works on AWS and GCP, while keeping things pretty simple and
-straight forward. It uses [json schema](http://json-schema.org/) [draft v4](http://json-schema.org/specification-links.html#draft-4)
+straight forward. It uses [json schema](https://json-schema.org/) [draft v4](https://json-schema.org/specification-links.html#draft-4)
 for schema validation so all incoming and outgoing messages are validated against pre-defined schema.
 
 Hedwig allows separation of concerns between consumers and publishers so your services are loosely coupled, and the
@@ -35,7 +36,7 @@ that can be accessed using feature `mock`.
     let schema = r#"
 {
   "$id": "https://hedwig.standard.ai/schema",
-  "$schema": "http://json-schema.org/draft-04/schema#",
+  "$schema": "https://json-schema.org/draft-04/schema#",
   "description": "Example Schema",
   "schemas": {
       "user-created": {

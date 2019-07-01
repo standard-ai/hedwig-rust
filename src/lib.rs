@@ -8,8 +8,9 @@
     unstable_features
 )]
 
-//! A Hedwig library for Rust. Hedwig is a message bus that works with AWS SNS/SQS Google Cloud Pubsub, with messages
-//! validated using JSON schema. The publisher and consumer are de-coupled and fan-out is supported out of the box.
+//! A Hedwig library for Rust. Hedwig is a message bus that works with AWS SNS/SQS and Google Cloud Pubsub, with
+//! messages validated using JSON schema. The publisher and consumer are de-coupled and fan-out is supported out of
+//! the box.
 //!
 //! # Examples
 //!
@@ -29,7 +30,7 @@
 //! let schema = r#"
 //!     {
 //!       "$id": "https://hedwig.standard.ai/schema",
-//!       "$schema": "http://json-schema.org/draft-04/schema#",
+//!       "$schema": "https://json-schema.org/draft-04/schema#",
 //!       "description": "Example Schema",
 //!       "schemas": {
 //!           "user-created": {
@@ -561,7 +562,7 @@ pub struct Message<D, T> {
     /// Metadata associated with the message
     pub metadata: Metadata,
 
-    /// Message schema, e.g. `http://hedwig.standard.ai/schemas#/schemas/user.created/1.0`
+    /// Message schema, e.g. `https://hedwig.standard.ai/schemas#/schemas/user.created/1.0`
     pub schema: String,
 
     /// Associated message data
@@ -665,7 +666,7 @@ mod tests {
     const SCHEMA: &str = r#"
 {
   "$id": "https://hedwig.standard.ai/schema",
-  "$schema": "http://json-schema.org/draft-04/schema#",
+  "$schema": "https://json-schema.org/draft-04/schema#",
   "description": "Example Schema",
   "schemas": {
       "user.created": {
