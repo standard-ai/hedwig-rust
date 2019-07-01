@@ -1,8 +1,7 @@
-use std::collections::HashMap;
 use std::env;
 
 use failure;
-use hedwig::{GooglePublisher, Hedwig, MajorVersion, MinorVersion, Version};
+use hedwig::{GooglePublisher, Headers, Hedwig, MajorVersion, MinorVersion, Version};
 use serde::Serialize;
 use strum_macros::IntoStaticStr;
 
@@ -71,7 +70,7 @@ fn main() -> Result<(), failure::Error> {
 
     let hedwig = Hedwig::new(schema, PUBLISHER, publisher, router)?;
 
-    let mut headers = HashMap::new();
+    let mut headers = Headers::new();
     headers.insert("request_id".to_string(), uuid::Uuid::new_v4().to_string());
 
     let data = UserCreatedData {

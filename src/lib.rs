@@ -605,7 +605,7 @@ impl<D, T> Message<D, T> {
         let message = Message {
             id: Uuid::new_v4(),
             metadata: Metadata {
-                headers: HashMap::new(),
+                headers: Headers::new(),
                 publisher: hedwig.publisher_name.clone(),
                 timestamp: timestamp.as_millis(),
             },
@@ -717,7 +717,7 @@ mod tests {
         let message = hedwig
             .message(MessageType::UserCreated, VERSION_1_0, data.clone())
             .unwrap();
-        assert_eq!(HashMap::new(), message.metadata.headers);
+        assert_eq!(Headers::new(), message.metadata.headers);
         assert_eq!(hedwig.publisher_name, message.metadata.publisher);
         assert_eq!(data, message.data);
         assert_eq!(MessageType::UserCreated, message.data_type);
@@ -731,7 +731,7 @@ mod tests {
 
     #[test]
     fn message_set_headers() {
-        let mut custom_headers = HashMap::new();
+        let mut custom_headers = Headers::new();
         let request_id = Uuid::new_v4().to_string();
         custom_headers.insert("request_id".to_owned(), request_id.clone());
         let hedwig = mock_hedwig();
@@ -776,7 +776,7 @@ mod tests {
     #[test]
     fn publish() {
         let hedwig = mock_hedwig();
-        let mut custom_headers = HashMap::new();
+        let mut custom_headers = Headers::new();
         let request_id = Uuid::new_v4().to_string();
         custom_headers.insert("request_id".to_owned(), request_id.clone());
         let mut message = hedwig
