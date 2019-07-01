@@ -1,6 +1,6 @@
 [package]
 name = "hedwig"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Aniruddha Maru <aniruddhamaru@gmail.com>"]
 edition = "2018"
 repository = "https://github.com/standard-ai/hedwig-rust.git"
@@ -9,6 +9,7 @@ readme = "README.md"
 description = "A simple message bus for Rust"
 license = "Apache-2.0"
 keywords = ["pubsub", "messagebus", "microservices"]
+categories = ["asynchronous", "web-programming"]
 
 [badges]
 travis-ci = { repository = "standard-ai/hedwig-rust" }
