@@ -138,9 +138,6 @@ use yup_oauth2 as oauth2;
 #[allow(missing_docs)]
 #[derive(Debug, Fail)]
 pub enum HedwigError {
-    #[fail(display = "Credentials path is invalid: {}", _0)]
-    CredentialsPathError(String),
-
     #[fail(display = "Credentials file couldn't be read")]
     CredentialsIOError(#[cause] io::Error),
 
@@ -267,6 +264,7 @@ impl Publisher for GooglePublisher {
     where
         D: Serialize,
     {
+        // in reality this can't fail since message.data has already been verified serializable in Message::validate
         let raw_message =
             serde_json::to_string(&message).map_err(PublishError::SerializationError)?;
 
@@ -643,16 +641,22 @@ impl<D, T> Message<D, T> {
 }
 
 #[cfg(test)]
-#[cfg(feature = "mock")]
 mod tests {
     use super::*;
 
+    use assert_matches::assert_matches;
     use strum_macros::IntoStaticStr;
 
     #[derive(Clone, Copy, Debug, IntoStaticStr, Hash, PartialEq, Eq)]
     enum MessageType {
         #[strum(serialize = "user.created")]
         UserCreated,
+
+        #[strum(serialize = "invalid.schema")]
+        InvalidSchema,
+
+        #[strum(serialize = "invalid.route")]
+        InvalidRoute,
     }
 
     #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -684,6 +688,9 @@ mod tests {
                   }
               }
           }
+      },
+      "invalid.route": {
+          "1.*": {}
       }
   },
   "definitions": {
@@ -698,15 +705,18 @@ mod tests {
     fn router(t: MessageType, v: MajorVersion) -> Option<&'static str> {
         match (t, v) {
             (MessageType::UserCreated, MajorVersion(1)) => Some("dev-user-created-v1"),
+            (MessageType::InvalidSchema, MajorVersion(1)) => Some("invalid-schema"),
             _ => None,
         }
     }
 
+    #[cfg(feature = "mock")]
     fn mock_hedwig() -> Hedwig<MessageType, MockPublisher> {
         Hedwig::new(SCHEMA, "myapp", MockPublisher::default(), router).unwrap()
     }
 
     #[test]
+    #[cfg(feature = "mock")]
     fn message_constructor() {
         let hedwig = mock_hedwig();
         let data = UserCreatedData {
@@ -728,6 +738,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "mock")]
     fn message_set_headers() {
         let mut custom_headers = Headers::new();
         let request_id = Uuid::new_v4().to_string();
@@ -755,6 +766,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "mock")]
     fn message_with_id() {
         let id = uuid::Uuid::new_v4();
         let hedwig = mock_hedwig();
@@ -772,6 +784,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "mock")]
     fn publish() {
         let hedwig = mock_hedwig();
         let mut custom_headers = Headers::new();
@@ -791,5 +804,82 @@ mod tests {
         hedwig
             .publisher
             .assert_message_published(&message, &custom_headers);
+    }
+
+    #[test]
+    #[cfg(feature = "google")]
+    fn google_publisher_credentials_error() {
+        let r = GooglePublisher::new("path does not exist", "myproject".into());
+        assert_matches!(r.err(), Some(HedwigError::CredentialsIOError(_)));
+    }
+
+    #[test]
+    fn validator_deserialization_error() {
+        let r = Validator::new("bad json");
+        assert_matches!(r.err(), Some(HedwigError::DeserializationError(_)));
+    }
+
+    #[test]
+    fn validator_schema_compile_error() {
+        const BAD_SCHEMA: &str = r#"
+{
+  "$schema": "https://json-schema.org/draft-04/schema#",
+  "definitions": {
+      "UserId": {
+          "1.0": {
+              "type": "bad value"
+          }
+      }
+  }
+}"#;
+
+        let r = Validator::new(BAD_SCHEMA);
+        assert_matches!(r.err(), Some(HedwigError::SchemaCompileError(_)));
+    }
+
+    #[test]
+    #[cfg(feature = "mock")]
+    fn message_serialization_error() {
+        let hedwig = mock_hedwig();
+        #[derive(Serialize)]
+        struct BadUserCreatedData {
+            user_ids: HashMap<Vec<i32>, String>,
+        };
+        let mut user_ids = HashMap::new();
+        user_ids.insert(vec![32, 64], "U_123".to_owned());
+        let data = BadUserCreatedData { user_ids };
+        let r = hedwig.message(MessageType::UserCreated, VERSION_1_0, data);
+        assert_matches!(r.err(), Some(MessageError::SerializationError(_)));
+    }
+
+    #[test]
+    #[cfg(feature = "mock")]
+    fn message_router_error() {
+        let hedwig = mock_hedwig();
+        let data = ();
+        let r = hedwig.message(MessageType::InvalidRoute, VERSION_1_0, data);
+        assert_matches!(r.err(), Some(MessageError::RouterError(_)));
+    }
+
+    #[test]
+    #[cfg(feature = "mock")]
+    fn message_invalid_schema_error() {
+        let hedwig = mock_hedwig();
+        let data = ();
+        let r = hedwig.message(MessageType::InvalidSchema, VERSION_1_0, data);
+        assert_matches!(r.err(), Some(MessageError::MessageInvalidSchemaError(_)));
+    }
+
+    #[test]
+    #[cfg(feature = "mock")]
+    fn message_data_validation_eror() {
+        let hedwig = mock_hedwig();
+        #[derive(Serialize)]
+        struct BadUserCreatedData {
+            user_ids: Vec<i32>,
+        };
+        let data = BadUserCreatedData { user_ids: vec![1] };
+        let r = hedwig.message(MessageType::UserCreated, VERSION_1_0, data);
+        assert_matches!(r.err(), Some(MessageError::MessageDataValidationError(_)));
     }
 }
