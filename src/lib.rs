@@ -856,8 +856,7 @@ mod tests {
     #[cfg(feature = "mock")]
     fn message_router_error() {
         let hedwig = mock_hedwig();
-        let data = ();
-        let r = hedwig.message(MessageType::InvalidRoute, VERSION_1_0, data);
+        let r = hedwig.message(MessageType::InvalidRoute, VERSION_1_0, ());
         assert_matches!(r.err(), Some(MessageError::RouterError(_)));
     }
 
@@ -865,8 +864,7 @@ mod tests {
     #[cfg(feature = "mock")]
     fn message_invalid_schema_error() {
         let hedwig = mock_hedwig();
-        let data = ();
-        let r = hedwig.message(MessageType::InvalidSchema, VERSION_1_0, data);
+        let r = hedwig.message(MessageType::InvalidSchema, VERSION_1_0, ());
         assert_matches!(r.err(), Some(MessageError::MessageInvalidSchemaError(_)));
     }
 
