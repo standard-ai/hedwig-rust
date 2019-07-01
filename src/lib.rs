@@ -597,11 +597,9 @@ impl<D, T> Message<D, T> {
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards");
 
-        let topic = match (hedwig.message_router)(&data_type, &data_schema_version.0) {
-            Some(t) => t,
-            None => return Err(MessageError::RouterError("Topic not found")),
-        }
-        .to_owned();
+        let topic = (hedwig.message_router)(&data_type, &data_schema_version.0)
+            .ok_or(MessageError::RouterError("Topic not found"))?
+            .to_owned();
 
         let message = Message {
             id: Uuid::new_v4(),

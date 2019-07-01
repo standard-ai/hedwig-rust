@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::env;
 
 use failure;
-use hedwig::{GooglePublisher, Hedwig, MajorVersion, MessageRouter, MinorVersion, Version};
+use hedwig::{GooglePublisher, Hedwig, MajorVersion, MinorVersion, Version};
 use serde::Serialize;
 use strum_macros::IntoStaticStr;
 
