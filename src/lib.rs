@@ -521,7 +521,7 @@ where
         D: Serialize,
         T: Copy + Into<&'static str>,
     {
-        Message::new(&self, data_type, data_schema_version, data)
+        Message::new(self, data_type, data_schema_version, data)
     }
 
     /// Publish a message using the configured publisher. Returns the publish id if successful. The publish id depends
@@ -778,7 +778,7 @@ mod tests {
         let hedwig = mock_hedwig();
         let mut custom_headers = Headers::new();
         let request_id = Uuid::new_v4().to_string();
-        custom_headers.insert("request_id".to_owned(), request_id.clone());
+        custom_headers.insert("request_id".to_owned(), request_id);
         let mut message = hedwig
             .message(
                 MessageType::UserCreated,
