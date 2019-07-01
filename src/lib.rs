@@ -447,7 +447,7 @@ impl Serialize for Version {
     }
 }
 
-/// MessageRouter is a function that can route messages of a given type and version to a Hedwig topic.
+/// `MessageRouter` is a function that can route messages of a given type and version to a Hedwig topic.
 ///
 /// # Examples
 /// ```
