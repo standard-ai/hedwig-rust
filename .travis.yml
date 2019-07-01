@@ -27,7 +27,7 @@ script:
 - travis-cargo build -- $flags
 - travis-cargo test -- $flags
 - travis-cargo doc -- $flags
-- travis-cargo clippy -- --all-targets $flags -- -D warnings -A clippy::or_fun_call
+- travis-cargo clippy -- --all-targets $flags -- -D clippy::all -A clippy::or_fun_call
 addons:
   apt:
     packages:
