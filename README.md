@@ -72,11 +72,13 @@ that can be accessed using feature `mock`.
         }
     }
 
+    // create a publisher instance appropriately
+    // let publisher = GooglePublisher::new(String::from("/home/.google-key.json"), "myproject".into())?; 
+
     let hedwig = Hedwig::new(
         schema,
         "myapp",
-        google_credentials,
-        google_project,
+        publisher
         router,
     )?;
 
