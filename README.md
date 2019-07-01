@@ -26,6 +26,9 @@ Add to Cargo.toml:
 hedwig = "*"
 ```
 
+To use Google Publisher, use feature `google`. There's also a mock publisher provided for testing
+that can be accessed using feature `mock`.
+
 ### Usage
 
 ```rust

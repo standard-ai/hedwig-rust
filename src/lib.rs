@@ -197,7 +197,7 @@ pub trait Publisher {
         D: Serialize;
 }
 
-/// A publisher that uses Google PubSub
+/// A publisher that uses Google PubSub. To use this class, add feature `google`.
 ///
 /// # Examples
 ///
@@ -311,7 +311,7 @@ impl Publisher for GooglePublisher {
 #[cfg(feature = "mock")]
 #[derive(Debug, Default)]
 /// A mock publisher that doesn't publish messages, but just stores them in-memory for later verification
-/// This is useful primarily in tests.
+/// This is useful primarily in tests. To use this class, add feature `mock`.
 ///
 /// # Examples
 ///
