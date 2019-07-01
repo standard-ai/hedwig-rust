@@ -21,9 +21,9 @@ const VERSION_1_0: Version = Version(MajorVersion(1), MinorVersion(0));
 
 const PUBLISHER: &str = "myapp";
 
-fn router(t: &MessageType, v: &MajorVersion) -> Option<&'static str> {
+fn router(t: MessageType, v: MajorVersion) -> Option<&'static str> {
     match (t, v) {
-        (&MessageType::UserCreated, &MajorVersion(1)) => Some("dev-user-created-v1"),
+        (MessageType::UserCreated, MajorVersion(1)) => Some("dev-user-created-v1"),
         _ => None,
     }
 }

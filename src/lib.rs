@@ -71,9 +71,9 @@
 //!     #     user_id: String,
 //!     # }
 //!     #
-//!     fn router(t: &MessageType, v: &MajorVersion) -> Option<&'static str> {
+//!     fn router(t: MessageType, v: MajorVersion) -> Option<&'static str> {
 //!         match (t, v) {
-//!             (&MessageType::UserCreated, &MajorVersion(1)) => Some("dev-user-created-v1"),
+//!             (MessageType::UserCreated, MajorVersion(1)) => Some("dev-user-created-v1"),
 //!             _ => None,
 //!         }
 //!     }
@@ -255,7 +255,7 @@ impl GooglePublisher {
 
         Ok(GooglePublisher {
             client,
-            google_cloud_project: String::from(google_cloud_project),
+            google_cloud_project,
         })
     }
 }
@@ -300,14 +300,17 @@ impl Publisher for GooglePublisher {
                 // find the first item from the returned vector
                 response
                     .message_ids
-                    .ok_or(PublishError::InvalidResponseNoMessageId(not_found))
+                    .ok_or_else(|| PublishError::InvalidResponseNoMessageId(not_found))
                     .map(|v| v.into_iter().next())
                     .transpose()
-                    .unwrap_or(Err(PublishError::InvalidResponseNoMessageId(not_found)))
+                    .unwrap_or_else(|| Err(PublishError::InvalidResponseNoMessageId(not_found)))
             }
         }
     }
 }
+
+/// Type alias for custom headers associated with a message
+pub type Headers = HashMap<String, String>;
 
 #[cfg(feature = "mock")]
 #[derive(Debug, Default)]
@@ -325,18 +328,15 @@ impl Publisher for GooglePublisher {
 /// ```
 pub struct MockPublisher {
     // `RefCell` for interior mutability
-    published_messages: RefCell<HashMap<Uuid, (String, HashMap<String, String>)>>,
+    published_messages: RefCell<HashMap<Uuid, (String, Headers)>>,
 }
 
 #[cfg(feature = "mock")]
 impl MockPublisher {
     /// Verify that a message was published. This method asserts that the message you expected to be published, was
     /// indeed published
-    pub fn assert_message_published<D, T>(
-        &self,
-        message: &Message<D, T>,
-        headers: &HashMap<String, String>,
-    ) where
+    pub fn assert_message_published<D, T>(&self, message: &Message<D, T>, headers: &Headers)
+    where
         D: Serialize,
     {
         let published_messages = self.published_messages.borrow();
@@ -462,11 +462,11 @@ impl Serialize for Version {
 /// # }
 /// #
 /// let r: MessageRouter<MessageType> = |t, v| match (t, v) {
-///     (&MessageType::UserCreated, &MajorVersion(1)) => Some("user-created-v1"),
+///     (MessageType::UserCreated, MajorVersion(1)) => Some("user-created-v1"),
 ///     _ => None,
 /// };
 /// ```
-pub type MessageRouter<T> = fn(&T, &MajorVersion) -> Option<&'static str>;
+pub type MessageRouter<T> = fn(T, MajorVersion) -> Option<&'static str>;
 
 /// Central instance to access all Hedwig related resources
 #[allow(missing_debug_implementations)]
@@ -548,7 +548,7 @@ pub struct Metadata {
     pub publisher: String,
 
     /// Custom headers. This may be used to track request_id, for example.
-    pub headers: HashMap<String, String>,
+    pub headers: Headers,
 }
 
 const FORMAT_VERSION_V1: Version = Version(MajorVersion(1), MinorVersion(0));
@@ -598,7 +598,7 @@ impl<D, T> Message<D, T> {
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards");
 
-        let topic = (hedwig.message_router)(&data_type, &data_schema_version.0)
+        let topic = (hedwig.message_router)(data_type, data_schema_version.0)
             .ok_or(MessageError::RouterError("Topic not found"))?
             .to_owned();
 
@@ -627,8 +627,8 @@ impl<D, T> Message<D, T> {
     }
 
     /// Add custom headers to the message. This may be used to track `request_id`, for example.
-    pub fn with_headers(&mut self, headers: HashMap<String, String>) -> &mut Self {
-        (&mut self.metadata).headers = headers;
+    pub fn with_headers(&mut self, headers: Headers) -> &mut Self {
+        self.metadata.headers = headers;
         self
     }
 
@@ -638,7 +638,8 @@ impl<D, T> Message<D, T> {
         self
     }
 
-    fn headers(&self) -> HashMap<String, String> {
+    #[cfg(any(feature = "google", feature = "mock"))]
+    fn headers(&self) -> Headers {
         self.metadata.headers.clone()
     }
 }
@@ -696,9 +697,9 @@ mod tests {
   }
 }"#;
 
-    fn router(t: &MessageType, v: &MajorVersion) -> Option<&'static str> {
+    fn router(t: MessageType, v: MajorVersion) -> Option<&'static str> {
         match (t, v) {
-            (&MessageType::UserCreated, &MajorVersion(1)) => Some("dev-user-created-v1"),
+            (MessageType::UserCreated, MajorVersion(1)) => Some("dev-user-created-v1"),
             _ => None,
         }
     }
@@ -768,7 +769,7 @@ mod tests {
                 },
             )
             .unwrap();
-        message.with_id(id.clone());
+        message.with_id(id);
         assert_eq!(id, message.id);
     }
 
