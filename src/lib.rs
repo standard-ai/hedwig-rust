@@ -186,7 +186,7 @@ pub enum PublishError {
     PublishAPIFailure(String),
 
     #[fail(display = "Invalid from publish API: can't find published message id")]
-    InvalidResponseNoMessageId(&'static str),
+    InvalidResponseNoMessageId,
 }
 
 /// A trait for message publishers. This may be used to implement custom behavior such as publish to \<insert your
@@ -295,15 +295,13 @@ impl Publisher for GooglePublisher {
                 e
             ))),
             Ok((_, response)) => {
-                let not_found = "Published message, but can't find message id";
-
                 // find the first item from the returned vector
                 response
                     .message_ids
-                    .ok_or_else(|| PublishError::InvalidResponseNoMessageId(not_found))
+                    .ok_or(PublishError::InvalidResponseNoMessageId)
                     .map(|v| v.into_iter().next())
                     .transpose()
-                    .unwrap_or_else(|| Err(PublishError::InvalidResponseNoMessageId(not_found)))
+                    .unwrap_or(Err(PublishError::InvalidResponseNoMessageId))
             }
         }
     }
