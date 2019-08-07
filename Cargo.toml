@@ -1,6 +1,6 @@
 [package]
 name = "hedwig"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Aniruddha Maru <aniruddhamaru@gmail.com>"]
 edition = "2018"
 repository = "https://github.com/standard-ai/hedwig-rust.git"
@@ -37,7 +37,7 @@ serde = { version = "^1.0", features = ["derive"] }
 serde_json = "^1.0"
 url = "^1.7"
 uuid = { version = "^0.7", features = ["serde", "v4"] }
-valico = { version = "^3.0" }
+valico = { version = "^3.1" }
 yup-oauth2 = { version = "^1.0", optional = true }
 
 [dev-dependencies]
