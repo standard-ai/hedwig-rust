@@ -145,8 +145,7 @@ pub enum HedwigError {
     DeserializationError(#[cause] serde_json::Error),
 
     #[fail(display = "Schema failed to compile")]
-    // can't specify #[cause] since SchemaError doesn't implement Error yet (see https://github.com/rustless/valico/issues/24)
-    SchemaCompileError(SchemaError),
+    SchemaCompileError(#[cause] SchemaError),
 }
 
 impl From<SchemaError> for HedwigError {
