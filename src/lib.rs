@@ -8,16 +8,14 @@
     unstable_features
 )]
 
-//! A Hedwig library for Rust. Hedwig is a message bus that works with AWS SNS/SQS and Google Cloud Pubsub, with
-//! messages validated using JSON schema. The publisher and consumer are de-coupled and fan-out is supported out of
-//! the box.
+//! A Hedwig library for Rust. Hedwig is a message bus that works with arbitrary pubsub services
+//! such as AWS SNS/SQS or Google Cloud Pubsub. Messages are validated using a JSON schema. The
+//! publisher and consumer are de-coupled and fan-out is supported out of the box.
 //!
-//! # Examples
-//!
-//! Publish a new message
+//! # Example: publish a new message
 //!
 //! ```no_run
-//! use hedwig::{Hedwig, MajorVersion, MinorVersion, Version};
+//! use hedwig::{Hedwig, MajorVersion, MinorVersion, Version, Message};
 //! # #[cfg(feature = "google")]
 //! # use hedwig::GooglePublisher;
 //! # #[cfg(feature = "mock")]
@@ -93,14 +91,11 @@
 //!     )?;
 //!
 //!     # #[cfg(any(feature = "google", feature="mock"))]
-//!     let message = hedwig.message(
-//!         MessageType::UserCreated,
+//!     let message = hedwig.start_publish().message(
+//!         Message::new(MessageType::UserCreated,
 //!         Version(MajorVersion(1), MinorVersion(0)),
-//!         UserCreatedData { user_id: "U_123".into() },
-//!     )?;
-//!
-//!     # #[cfg(any(feature = "google", feature="mock"))]
-//!     hedwig.publish(message)?;
+//!         UserCreatedData { user_id: "U_123".into() })
+//!     )?.publish()?;
 //!     # Ok(())
 //! # }
 //! ```
@@ -134,7 +129,9 @@ use valico::json_schema::{SchemaError, Scope, ValidationState};
 #[cfg(feature = "google")]
 use yup_oauth2 as oauth2;
 
-/// All errors that may be returned when instantiating a new Hedwig instance
+const FORMAT_VERSION_V1: Version = Version(MajorVersion(1), MinorVersion(0));
+
+/// All errors that may be returned when instantiating a new Hedwig instance.
 #[allow(missing_docs)]
 #[derive(Debug, Fail)]
 pub enum HedwigError {
@@ -154,44 +151,38 @@ impl From<SchemaError> for HedwigError {
     }
 }
 
-/// All errors that may be returned while instantiating a new Message instance
-#[allow(missing_docs)]
-#[derive(Debug, Fail)]
-pub enum MessageError {
-    #[fail(display = "Unable to serialize message data")]
-    SerializationError(#[cause] serde_json::Error),
-
-    #[fail(display = "Router failed to route message correctly")]
-    RouterError(&'static str),
-
-    #[fail(display = "Message has invalid schema declaration: {}", _0)]
-    MessageInvalidSchemaError(String),
-
-    #[fail(display = "Message data doesn't validate per the schema")]
-    MessageDataValidationError(String),
-}
-
-/// All errors that may be returned while publishing a message
+/// All errors that may be returned while publishing a message.
 #[allow(missing_docs)]
 #[derive(Debug, Fail)]
 pub enum PublishError {
     #[fail(display = "Unable to serialize message")]
     SerializationError(#[cause] serde_json::Error),
 
+    #[fail(display = "Message {} is not routable", _0)]
+    RouteError(Uuid),
+
     #[fail(display = "API failure occurred when publishing message")]
-    PublishAPIFailure(String),
+    PublishAPIFailure(#[cause] failure::Error),
 
     #[fail(display = "Invalid from publish API: can't find published message id")]
     InvalidResponseNoMessageId,
+
+    #[fail(display = "Could not parse `{}` as a schema URL", _1)]
+    InvalidSchemaUrl(#[cause] url::ParseError, String),
+
+    #[fail(display = "Could not resolve `{}` to a schema", _0)]
+    UnresolvableSchemaUrl(url::Url),
+
+    #[fail(display = "Message data doesn't validate per the schema")]
+    DataValidationError(failure::Error),
 }
 
-/// A trait for message publishers. This may be used to implement custom behavior such as publish to \<insert your
-/// favorite cloud platform\>.
+/// Message publishers.
+///
+/// This is used to interface with arbitrary pub-sub services.
 pub trait Publisher {
     /// Publish a Hedwig message.
-    fn publish<D, T>(&self, message: Message<D, T>) -> Result<String, PublishError>
-    where
-        D: Serialize;
+    fn publish(&self, message: Vec<(&'static str, MessageSchema)>) -> Result<(), PublishError>;
 }
 
 /// A publisher that uses Google PubSub. To use this class, add feature `google`.
@@ -254,61 +245,70 @@ impl GooglePublisher {
             google_cloud_project,
         })
     }
+
+    fn publish_batch(
+        &self,
+        topic: &str,
+        batch: Vec<pubsub1::PubsubMessage>,
+    ) -> Result<(), PublishError> {
+        self.client
+            .projects()
+            .topics_publish(
+                pubsub1::PublishRequest {
+                    messages: Some(batch),
+                },
+                format!(
+                    "projects/{}/topics/hedwig-{}",
+                    self.google_cloud_project, topic
+                )
+                .as_ref(),
+            )
+            .doit()
+            .map_err(|e| PublishError::PublishAPIFailure(failure::err_msg(format!("{}", e))))
+            .map(|_| ())
+    }
 }
 
 #[cfg(feature = "google")]
 impl Publisher for GooglePublisher {
     /// Publishes a message on Google Pubsub and returns a pubsub id (usually an integer).
-    fn publish<D, T>(&self, message: Message<D, T>) -> Result<String, PublishError>
-    where
-        D: Serialize,
-    {
-        // in reality this can't fail since message.data has already been verified serializable in Message::validate
-        let raw_message =
-            serde_json::to_string(&message).map_err(PublishError::SerializationError)?;
+    fn publish(
+        &self,
+        mut messages: Vec<(&'static str, MessageSchema)>,
+    ) -> Result<(), PublishError> {
+        // First sort the messages by the route
+        messages.sort_by_key(|&(k, _)| k);
 
-        let pubsub_message = pubsub1::PubsubMessage {
-            data: Some(base64::encode(&raw_message)),
-            attributes: Some(message.headers()),
-            ..Default::default()
-        };
+        let mut current_topic = "";
+        let mut current_batch = Vec::new();
 
-        let topic_path = format!(
-            "projects/{}/topics/hedwig-{}",
-            self.google_cloud_project, message.topic
-        );
-        let request = pubsub1::PublishRequest {
-            messages: Some(vec![pubsub_message]),
-        };
-        let result = self
-            .client
-            .projects()
-            .topics_publish(request, topic_path.as_ref())
-            .doit();
-
-        match result {
-            Err(e) => Err(PublishError::PublishAPIFailure(format!(
-                "Publish error: {}",
-                e
-            ))),
-            Ok((_, response)) => {
-                // find the first item from the returned vector
-                response
-                    .message_ids
-                    .ok_or(PublishError::InvalidResponseNoMessageId)
-                    .map(|v| v.into_iter().next())
-                    .transpose()
-                    .unwrap_or(Err(PublishError::InvalidResponseNoMessageId))
+        for (topic, message) in messages {
+            if current_topic != topic && !current_batch.is_empty() {
+                self.publish_batch(current_topic, current_batch)?;
+                current_batch = Vec::new();
             }
+            current_topic = topic;
+
+            let raw_message =
+                serde_json::to_string(&message).map_err(PublishError::SerializationError)?;
+            current_batch.push(pubsub1::PubsubMessage {
+                data: Some(base64::encode(&raw_message)),
+                attributes: Some(message.metadata.headers),
+                ..Default::default()
+            })
         }
+
+        if !current_batch.is_empty() {
+            self.publish_batch(current_topic, current_batch)?;
+        }
+
+        Ok(())
     }
 }
 
 /// Type alias for custom headers associated with a message
-pub type Headers = HashMap<String, String>;
+type Headers = HashMap<String, String>;
 
-#[cfg(feature = "mock")]
-#[derive(Debug, Default)]
 /// A mock publisher that doesn't publish messages, but just stores them in-memory for later verification
 /// This is useful primarily in tests. To use this class, add feature `mock`.
 ///
@@ -321,41 +321,24 @@ pub type Headers = HashMap<String, String>;
 /// # #[cfg(feature = "mock")]
 /// let publisher = MockPublisher::default();
 /// ```
+#[cfg(feature = "mock")]
+#[derive(Debug, Default)]
 pub struct MockPublisher {
     // `RefCell` for interior mutability
     published_messages: RefCell<HashMap<Uuid, (String, Headers)>>,
 }
 
 #[cfg(feature = "mock")]
-impl MockPublisher {
-    /// Verify that a message was published. This method asserts that the message you expected to be published, was
-    /// indeed published
-    pub fn assert_message_published<D, T>(&self, message: &Message<D, T>, headers: &Headers)
-    where
-        D: Serialize,
-    {
-        let published_messages = self.published_messages.borrow();
-        let (published, published_headers) = published_messages
-            .get(&message.id)
-            .expect("message not found");
-        let serialized = serde_json::to_string(&message).unwrap();
-        assert_eq!(published, &serialized);
-        assert_eq!(published_headers, headers);
-    }
-}
-
-#[cfg(feature = "mock")]
 impl Publisher for MockPublisher {
-    fn publish<D, T>(&self, message: Message<D, T>) -> Result<String, PublishError>
-    where
-        D: Serialize,
-    {
-        let serialized =
-            serde_json::to_string(&message).map_err(PublishError::SerializationError)?;
-        self.published_messages
-            .borrow_mut()
-            .insert(message.id, (serialized, message.headers()));
-        Ok(String::new())
+    fn publish(&self, messages: Vec<(&'static str, MessageSchema)>) -> Result<(), PublishError> {
+        for (_, message) in messages {
+            let serialized =
+                serde_json::to_string(&message).map_err(PublishError::SerializationError)?;
+            self.published_messages
+                .borrow_mut()
+                .insert(message.id, (serialized, message.metadata.headers));
+        }
+        Ok(())
     }
 }
 
@@ -375,31 +358,30 @@ impl Validator {
         Ok(Validator { scope, schema_id })
     }
 
-    fn validate<D, T>(&self, message: &Message<D, T>) -> Result<ValidationState, MessageError>
+    fn validate<D, T>(
+        &self,
+        message: &Message<D, T>,
+        schema: &str,
+    ) -> Result<ValidationState, PublishError>
     where
         D: Serialize,
     {
         // convert user.created/1.0 -> user.created/1.*
-        let msg_schema_ptr = message.schema.trim_end_matches(char::is_numeric).to_owned() + "*";
-
-        let msg_schema_url = match url::Url::parse(msg_schema_ptr.as_str()) {
-            Ok(u) => u,
-            Err(_) => return Err(MessageError::MessageInvalidSchemaError(msg_schema_ptr)),
-        };
-
-        let msg_schema = match self.scope.resolve(&msg_schema_url) {
-            None => return Err(MessageError::MessageInvalidSchemaError(msg_schema_ptr)),
-            Some(s) => s,
-        };
+        let msg_schema_ptr = schema.trim_end_matches(char::is_numeric).to_owned() + "*";
+        let msg_schema_url = url::Url::parse(&msg_schema_ptr)
+            .map_err(|e| PublishError::InvalidSchemaUrl(e, msg_schema_ptr))?;
+        let msg_schema = self
+            .scope
+            .resolve(&msg_schema_url)
+            .ok_or_else(|| PublishError::UnresolvableSchemaUrl(msg_schema_url))?;
 
         let msg_data =
-            serde_json::to_value(&message.data).map_err(MessageError::SerializationError)?;
+            serde_json::to_value(&message.data).map_err(PublishError::SerializationError)?;
 
         let validation_state = msg_schema.validate(&msg_data);
         if !validation_state.is_strictly_valid() {
-            return Err(MessageError::MessageDataValidationError(format!(
-                "validation_state: {:#?}",
-                validation_state
+            return Err(PublishError::DataValidationError(failure::err_msg(
+                format!("{:?}", validation_state),
             )));
         }
         Ok(validation_state)
@@ -442,7 +424,7 @@ impl Serialize for Version {
     }
 }
 
-/// `MessageRouter` is a function that can route messages of a given type and version to a Hedwig topic.
+/// `MessageRouter` is a function that maps messages to Hedwig topics.
 ///
 /// # Examples
 /// ```
@@ -499,43 +481,148 @@ where
         })
     }
 
-    /// Creates a new message with given data type, schema version and data object.
-    ///
-    /// # Arguments
-    ///
-    /// * data_type -  An Enum instance with static str representation
-    /// * data_schema_version - Version of the data object
-    /// * data - The message data - must be serializable
-    pub fn message<D>(
-        &self,
-        data_type: T,
-        data_schema_version: Version,
-        data: D,
-    ) -> Result<Message<D, T>, MessageError>
+    /// Create a builder for a batch publish construction.
+    pub fn start_publish(&self) -> HedwigPublishBuilder<T, P> {
+        HedwigPublishBuilder {
+            hedwig: self,
+            messages: Vec::new(),
+        }
+    }
+}
+
+/// A builder for batch publish.
+#[allow(missing_debug_implementations)]
+pub struct HedwigPublishBuilder<'hedwig, T, P> {
+    hedwig: &'hedwig Hedwig<T, P>,
+    messages: Vec<(&'static str, MessageSchema)>,
+}
+
+impl<'hedwig, T, P> HedwigPublishBuilder<'hedwig, T, P> {
+    /// Add a message to be published in a batch.
+    pub fn message<D>(mut self, msg: Message<D, T>) -> Result<Self, PublishError>
     where
         D: Serialize,
         T: Copy + Into<&'static str>,
     {
-        Message::new(self, data_type, data_schema_version, data)
+        let data_type = msg.data_type;
+        let schema_version = msg.data_schema_version;
+        let data_type_str = msg.data_type.into();
+        let schema_url = format!(
+            "{}#/schemas/{}/{}.{}",
+            self.hedwig.validator.schema_id, data_type_str, schema_version.0, schema_version.1,
+        );
+        self.hedwig.validator.validate(&msg, &schema_url)?;
+        let converted = msg
+            .to_schema(
+                self.hedwig.publisher_name.clone(),
+                schema_url,
+                FORMAT_VERSION_V1,
+            )
+            .map_err(PublishError::SerializationError)?;
+        let route = (self.hedwig.message_router)(data_type, converted.format_version.0)
+            .ok_or_else(|| PublishError::RouteError(converted.id))?;
+        self.messages.push((route, converted));
+        Ok(self)
     }
 
-    /// Publish a message using the configured publisher. Returns the publish id if successful. The publish id depends
-    /// on your publisher.
+    /// Publish all the messages.
+    pub fn publish(self) -> Result<(), PublishError>
+    where
+        P: Publisher,
+    {
+        self.hedwig.publisher.publish(self.messages)
+    }
+}
+
+/// A message builder.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Message<D, T> {
+    /// Message identifier
+    id: Option<Uuid>,
+    /// Creation timestamp
+    timestamp: std::time::Duration,
+    /// Message headers
+    headers: Option<Headers>,
+    /// Message data
+    data: D,
+    /// Message type
+    data_type: T,
+    data_schema_version: Version,
+}
+
+impl<D, T> Message<D, T> {
+    /// Construct a new message.
+    pub fn new(data_type: T, data_schema_version: Version, data: D) -> Self {
+        Message {
+            id: None,
+            timestamp: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("time is before the unix epoch"),
+            headers: None,
+            data,
+            data_type,
+            data_schema_version,
+        }
+    }
+
+    /// Overwrite the header map associated with the message.
     ///
-    /// # Arguments
+    /// This may be used to track the `request_id`, for example.
+    pub fn headers(mut self, headers: Headers) -> Self {
+        self.headers = Some(headers);
+        self
+    }
+
+    /// Add a custom header to the message.
     ///
-    /// * `message` - the message to publish
-    pub fn publish<D>(&self, message: Message<D, T>) -> Result<String, PublishError>
+    /// This may be used to track the `request_id`, for example.
+    pub fn header<H, V>(mut self, header: H, value: V) -> Self
+    where
+        H: Into<String>,
+        V: Into<String>,
+    {
+        if let Some(ref mut hdrs) = self.headers {
+            hdrs.insert(header.into(), value.into());
+        } else {
+            let mut map = HashMap::new();
+            map.insert(header.into(), value.into());
+            self.headers = Some(map);
+        }
+        self
+    }
+
+    /// Add custom id to the message. If not provided, a random UUID is generated.
+    pub fn id(mut self, id: Uuid) -> Self {
+        self.id = Some(id);
+        self
+    }
+
+    fn to_schema(
+        self,
+        publisher_name: String,
+        schema: String,
+        format_version: Version,
+    ) -> Result<MessageSchema, serde_json::Error>
     where
         D: Serialize,
     {
-        self.publisher.publish(message)
+        Ok(MessageSchema {
+            id: self.id.unwrap_or_else(Uuid::new_v4),
+            metadata: MetadataSchema {
+                timestamp: self.timestamp.as_millis(),
+                publisher: publisher_name,
+                headers: self.headers.unwrap_or_else(HashMap::new),
+            },
+            schema,
+            format_version,
+            data: serde_json::to_value(self.data)?,
+        })
     }
 }
 
 /// Additional metadata associated with a message
 #[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct Metadata {
+pub struct MetadataSchema {
     /// The timestamp when message was created in the publishing service
     pub timestamp: u128,
 
@@ -546,97 +633,23 @@ pub struct Metadata {
     pub headers: Headers,
 }
 
-const FORMAT_VERSION_V1: Version = Version(MajorVersion(1), MinorVersion(0));
-
-/// Message represents an instance of a message on the message bus.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct Message<D, T> {
-    /// Message identifier
-    pub id: Uuid,
-
-    /// Metadata associated with the message
-    pub metadata: Metadata,
-
-    /// Message schema, e.g. `https://hedwig.standard.ai/schemas#/schemas/user.created/1.0`
-    pub schema: String,
-
-    /// Associated message data
-    pub data: D,
-
-    /// Format version for the message container
-    pub format_version: Version,
-
-    /// Type of data represented by this message
-    #[serde(skip)]
-    pub data_type: T,
-
-    /// Schema version of the data object. This should follow semver.
-    #[serde(skip)]
-    pub data_schema_version: Version,
-
-    #[serde(skip)]
-    topic: String,
-}
-
-impl<D, T> Message<D, T> {
-    fn new<P>(
-        hedwig: &Hedwig<T, P>,
-        data_type: T,
-        data_schema_version: Version,
-        data: D,
-    ) -> Result<Self, MessageError>
-    where
-        D: Serialize,
-        T: Copy + Into<&'static str>,
-    {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards");
-
-        let topic = (hedwig.message_router)(data_type, data_schema_version.0)
-            .ok_or(MessageError::RouterError("Topic not found"))?
-            .to_owned();
-
-        let message = Message {
-            id: Uuid::new_v4(),
-            metadata: Metadata {
-                headers: Headers::new(),
-                publisher: hedwig.publisher_name.clone(),
-                timestamp: timestamp.as_millis(),
-            },
-            schema: format!(
-                "{}#/schemas/{}/{}.{}",
-                hedwig.validator.schema_id,
-                data_type.into(),
-                data_schema_version.0,
-                data_schema_version.1,
-            ),
-            data,
-            format_version: FORMAT_VERSION_V1,
-            data_type,
-            data_schema_version,
-            topic,
-        };
-        hedwig.validator.validate(&message)?;
-        Ok(message)
-    }
-
-    /// Add custom headers to the message. This may be used to track `request_id`, for example.
-    pub fn with_headers(&mut self, headers: Headers) -> &mut Self {
-        self.metadata.headers = headers;
-        self
-    }
-
-    /// Add custom id to the message. If not provided, a new uuid v4 is used.
-    pub fn with_id(&mut self, id: Uuid) -> &mut Self {
-        self.id = id;
-        self
-    }
-
-    #[cfg(any(feature = "google", feature = "mock"))]
-    fn headers(&self) -> Headers {
-        self.metadata.headers.clone()
-    }
+/// A validated message.
+///
+/// This data type is the schema or the json messages being sent over the wire.
+#[derive(Debug, Serialize)]
+pub struct MessageSchema {
+    /// An unique message identifier.
+    id: Uuid,
+    /// The metadata associated with the message.
+    metadata: MetadataSchema,
+    /// URI of the schema validating this message.
+    ///
+    /// E.g. `https://hedwig.domain.xyz/schemas#/schemas/user.created/1.0`
+    schema: String,
+    /// Format of the message schema used.
+    format_version: Version,
+    /// The message data
+    data: serde_json::Value,
 }
 
 #[cfg(test)]
@@ -645,6 +658,39 @@ mod tests {
 
     use assert_matches::assert_matches;
     use strum_macros::IntoStaticStr;
+
+    #[cfg(feature = "mock")]
+    impl MockPublisher {
+        /// Verify that a message was published. This method asserts that the message you expected to be published, was
+        /// indeed published
+        pub fn assert_message_published<D, T>(&self, message: &Message<D, T>, headers: &Headers)
+        where
+            D: Serialize + Clone,
+            T: Copy + Into<&'static str>,
+        {
+            let published_messages = self.published_messages.borrow();
+            let (published, published_headers) = published_messages
+                .get(
+                    &message
+                        .id
+                        .expect("asserted messages should have specified uuid"),
+                )
+                .expect("message not found");
+            let data_type_str = message.data_type.into();
+            let encoded = message.clone().to_schema(
+                String::from("myapp"),
+                format!(
+                    "https://hedwig.standard.ai/schema#/schemas/{}/1.0",
+                    data_type_str
+                ),
+                VERSION_1_0,
+            );
+
+            let serialized = serde_json::to_string(&encoded.unwrap()).unwrap();
+            assert_eq!(published, &serialized);
+            assert_eq!(published_headers, headers);
+        }
+    }
 
     #[derive(Clone, Copy, Debug, IntoStaticStr, Hash, PartialEq, Eq)]
     enum MessageType {
@@ -715,49 +761,33 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "mock")]
     fn message_constructor() {
-        let hedwig = mock_hedwig();
         let data = UserCreatedData {
             user_id: "U_123".into(),
         };
-        let message = hedwig
-            .message(MessageType::UserCreated, VERSION_1_0, data.clone())
-            .unwrap();
-        assert_eq!(Headers::new(), message.metadata.headers);
-        assert_eq!(hedwig.publisher_name, message.metadata.publisher);
+        let message = Message::new(MessageType::UserCreated, VERSION_1_0, data.clone());
+        assert_eq!(None, message.headers);
         assert_eq!(data, message.data);
         assert_eq!(MessageType::UserCreated, message.data_type);
         assert_eq!(VERSION_1_0, message.data_schema_version);
-        assert_eq!(
-            "https://hedwig.standard.ai/schema#/schemas/user.created/1.0",
-            message.schema
-        );
-        assert_eq!(FORMAT_VERSION_V1, message.format_version);
     }
 
     #[test]
-    #[cfg(feature = "mock")]
     fn message_set_headers() {
-        let mut custom_headers = Headers::new();
         let request_id = Uuid::new_v4().to_string();
-        custom_headers.insert("request_id".to_owned(), request_id.clone());
-        let hedwig = mock_hedwig();
-        let mut message = hedwig
-            .message(
-                MessageType::UserCreated,
-                VERSION_1_0,
-                UserCreatedData {
-                    user_id: "U_123".into(),
-                },
-            )
-            .unwrap();
-        message.with_headers(custom_headers);
+        let message = Message::new(
+            MessageType::UserCreated,
+            VERSION_1_0,
+            UserCreatedData {
+                user_id: "U_123".into(),
+            },
+        )
+        .header("request_id", &request_id);
         assert_eq!(
             request_id,
             message
-                .metadata
                 .headers
+                .unwrap()
                 .get(&"request_id".to_owned())
                 .unwrap()
                 .as_str()
@@ -765,21 +795,17 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "mock")]
     fn message_with_id() {
         let id = uuid::Uuid::new_v4();
-        let hedwig = mock_hedwig();
-        let mut message = hedwig
-            .message(
-                MessageType::UserCreated,
-                VERSION_1_0,
-                UserCreatedData {
-                    user_id: "U_123".into(),
-                },
-            )
-            .unwrap();
-        message.with_id(id);
-        assert_eq!(id, message.id);
+        let message = Message::new(
+            MessageType::UserCreated,
+            VERSION_1_0,
+            UserCreatedData {
+                user_id: "U_123".into(),
+            },
+        )
+        .id(id);
+        assert_eq!(id, message.id.unwrap());
     }
 
     #[test]
@@ -788,18 +814,23 @@ mod tests {
         let hedwig = mock_hedwig();
         let mut custom_headers = Headers::new();
         let request_id = Uuid::new_v4().to_string();
+        let msg_id = Uuid::new_v4();
+        let message = Message::new(
+            MessageType::UserCreated,
+            VERSION_1_0,
+            UserCreatedData {
+                user_id: "U_123".into(),
+            },
+        )
+        .header("request_id", &request_id)
+        .id(msg_id);
         custom_headers.insert("request_id".to_owned(), request_id);
-        let mut message = hedwig
-            .message(
-                MessageType::UserCreated,
-                VERSION_1_0,
-                UserCreatedData {
-                    user_id: "U_123".into(),
-                },
-            )
+        hedwig
+            .start_publish()
+            .message(message.clone())
+            .unwrap()
+            .publish()
             .unwrap();
-        message.with_headers(custom_headers.clone());
-        hedwig.publish(message.clone()).unwrap();
         hedwig
             .publisher
             .assert_message_published(&message, &custom_headers);
@@ -847,24 +878,27 @@ mod tests {
         let mut user_ids = HashMap::new();
         user_ids.insert(vec![32, 64], "U_123".to_owned());
         let data = BadUserCreatedData { user_ids };
-        let r = hedwig.message(MessageType::UserCreated, VERSION_1_0, data);
-        assert_matches!(r.err(), Some(MessageError::SerializationError(_)));
+        let m = Message::new(MessageType::UserCreated, VERSION_1_0, data);
+        let r = hedwig.start_publish().message(m);
+        assert_matches!(r.err(), Some(PublishError::SerializationError(_)));
     }
 
     #[test]
     #[cfg(feature = "mock")]
     fn message_router_error() {
         let hedwig = mock_hedwig();
-        let r = hedwig.message(MessageType::InvalidRoute, VERSION_1_0, ());
-        assert_matches!(r.err(), Some(MessageError::RouterError(_)));
+        let m = Message::new(MessageType::InvalidRoute, VERSION_1_0, ());
+        let r = hedwig.start_publish().message(m);
+        assert_matches!(r.err(), Some(PublishError::RouteError(_)));
     }
 
     #[test]
     #[cfg(feature = "mock")]
     fn message_invalid_schema_error() {
         let hedwig = mock_hedwig();
-        let r = hedwig.message(MessageType::InvalidSchema, VERSION_1_0, ());
-        assert_matches!(r.err(), Some(MessageError::MessageInvalidSchemaError(_)));
+        let m = Message::new(MessageType::InvalidSchema, VERSION_1_0, ());
+        let r = hedwig.start_publish().message(m);
+        assert_matches!(r.err(), Some(PublishError::UnresolvableSchemaUrl(_)));
     }
 
     #[test]
@@ -876,7 +910,8 @@ mod tests {
             user_ids: Vec<i32>,
         };
         let data = BadUserCreatedData { user_ids: vec![1] };
-        let r = hedwig.message(MessageType::UserCreated, VERSION_1_0, data);
-        assert_matches!(r.err(), Some(MessageError::MessageDataValidationError(_)));
+        let m = Message::new(MessageType::UserCreated, VERSION_1_0, data);
+        let r = hedwig.start_publish().message(m);
+        assert_matches!(r.err(), Some(PublishError::DataValidationError(_)));
     }
 }
