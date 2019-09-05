@@ -135,8 +135,11 @@ const FORMAT_VERSION_V1: Version = Version(MajorVersion(1), MinorVersion(0));
 #[allow(missing_docs)]
 #[derive(Debug, Fail)]
 pub enum HedwigError {
-    #[fail(display = "Credentials file couldn't be read")]
-    CredentialsIOError(#[cause] io::Error),
+    #[fail(display = "Credentials file {:?} couldn't be read", _1)]
+    CannotOpenCredentialsFile(#[cause] io::Error, std::path::PathBuf),
+
+    #[fail(display = "Credentials file {:?} couldn't be parsed", _1)]
+    CannotParseCredentialsFile(#[cause] serde_json::Error, std::path::PathBuf),
 
     #[fail(display = "Unable to deserialize schema")]
     DeserializationError(#[cause] serde_json::Error),
@@ -223,13 +226,12 @@ impl GooglePublisher {
     where
         P: AsRef<Path>,
     {
-        let client_secret = oauth2::service_account_key_from_file(
-            &google_application_credentials
-                .as_ref()
-                .to_string_lossy()
-                .into(),
-        )
-        .map_err(HedwigError::CredentialsIOError)?;
+        let path = google_application_credentials.as_ref();
+        let f = std::fs::OpenOptions::new().read(true).open(path).map_err(|e|
+            HedwigError::CannotOpenCredentialsFile(e, path.into()))?;
+        let client_secret: oauth2::ServiceAccountKey = serde_json::from_reader(f)
+            .map_err(|e| HedwigError::CannotParseCredentialsFile(e, path.into()))?;
+
         let auth_https = HttpsConnector::new(hyper_rustls::TlsClient::new());
         let auth_client = hyper::Client::with_connector(auth_https);
 
