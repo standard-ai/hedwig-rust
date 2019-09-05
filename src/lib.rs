@@ -177,7 +177,7 @@ pub enum PublishError {
     UnresolvableSchemaUrl(url::Url),
 
     #[fail(display = "Message data doesn't validate per the schema")]
-    DataValidationError(failure::Error),
+    DataValidationError(#[cause] failure::Error),
 }
 
 /// Message publishers.
