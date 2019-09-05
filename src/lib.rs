@@ -227,8 +227,10 @@ impl GooglePublisher {
         P: AsRef<Path>,
     {
         let path = google_application_credentials.as_ref();
-        let f = std::fs::OpenOptions::new().read(true).open(path).map_err(|e|
-            HedwigError::CannotOpenCredentialsFile(e, path.into()))?;
+        let f = std::fs::OpenOptions::new()
+            .read(true)
+            .open(path)
+            .map_err(|e| HedwigError::CannotOpenCredentialsFile(e, path.into()))?;
         let client_secret: oauth2::ServiceAccountKey = serde_json::from_reader(f)
             .map_err(|e| HedwigError::CannotParseCredentialsFile(e, path.into()))?;
 
