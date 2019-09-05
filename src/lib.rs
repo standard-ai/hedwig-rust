@@ -786,7 +786,7 @@ mod tests {
                 user_id: "U_123".into(),
             },
         )
-        .header("request_id", &request_id);
+        .header("request_id", request_id.clone());
         assert_eq!(
             request_id,
             message
@@ -826,7 +826,7 @@ mod tests {
                 user_id: "U_123".into(),
             },
         )
-        .header("request_id", &request_id)
+        .header("request_id", request_id.clone())
         .id(msg_id);
         custom_headers.insert("request_id".to_owned(), request_id);
         hedwig
