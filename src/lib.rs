@@ -517,7 +517,7 @@ impl<'hedwig, T, P> HedwigPublishBuilder<'hedwig, T, P> {
         );
         self.hedwig.validator.validate(&msg, &schema_url)?;
         let converted = msg
-            .to_schema(
+            .into_schema(
                 self.hedwig.publisher_name.clone(),
                 schema_url,
                 FORMAT_VERSION_V1,
@@ -601,7 +601,7 @@ impl<D, T> Message<D, T> {
         self
     }
 
-    fn to_schema(
+    fn into_schema(
         self,
         publisher_name: String,
         schema: String,
@@ -681,7 +681,7 @@ mod tests {
                 )
                 .expect("message not found");
             let data_type_str = message.data_type.into();
-            let encoded = message.clone().to_schema(
+            let encoded = message.clone().into_schema(
                 String::from("myapp"),
                 format!(
                     "https://hedwig.standard.ai/schema#/schemas/{}/1.0",
@@ -844,7 +844,7 @@ mod tests {
     #[cfg(feature = "google")]
     fn google_publisher_credentials_error() {
         let r = GooglePublisher::new("path does not exist", "myproject".into());
-        assert_matches!(r.err(), Some(HedwigError::CredentialsIOError(_)));
+        assert_matches!(r.err(), Some(HedwigError::CannotOpenCredentialsFile(_, _)));
     }
 
     #[test]
