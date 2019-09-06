@@ -76,7 +76,7 @@ fn main() -> Result<(), failure::Error> {
 
     let message_id = uuid::Uuid::new_v4();
     hedwig
-        .start_publish()
+        .build_publish()
         .message(
             Message::new(MessageType::UserCreated, VERSION_1_0, data)
                 .id(message_id)
