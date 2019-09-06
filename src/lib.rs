@@ -193,7 +193,7 @@ pub trait Publisher {
     /// no semantic meaning.
     ///
     /// Shall return `Ok` only if all of the messages are successfully published.
-    fn publish(&self, messages: Vec<(&'static str, MessageSchema)>)
+    fn publish(&self, messages: Vec<(&'static str, ValidatedMessage)>)
     -> Result<Self::MessageIds, PublishError>;
 }
 
@@ -293,7 +293,7 @@ impl Publisher for GooglePublisher {
     /// Publishes a message on Google Pubsub and returns a pubsub id (usually an integer).
     fn publish(
         &self,
-        mut messages: Vec<(&'static str, MessageSchema)>,
+        mut messages: Vec<(&'static str, ValidatedMessage)>,
     ) -> Result<Self::MessageIds, PublishError> {
         let mut message_ids = Vec::with_capacity(messages.len());
         // First sort the messages by the route
@@ -352,7 +352,7 @@ pub struct MockPublisher {
 impl Publisher for MockPublisher {
     type MessageIds = ();
 
-    fn publish(&self, messages: Vec<(&'static str, MessageSchema)>)
+    fn publish(&self, messages: Vec<(&'static str, ValidatedMessage)>)
     -> Result<Self::MessageIds, PublishError> {
         for (_, message) in messages {
             let serialized =
@@ -528,7 +528,7 @@ where
 #[allow(missing_debug_implementations)]
 pub struct HedwigPublishBuilder<'hedwig, T, P> {
     hedwig: &'hedwig Hedwig<T, P>,
-    messages: Vec<(&'static str, MessageSchema)>,
+    messages: Vec<(&'static str, ValidatedMessage)>,
 }
 
 impl<'hedwig, T, P> HedwigPublishBuilder<'hedwig, T, P> {
@@ -636,13 +636,13 @@ impl<D, T> Message<D, T> {
         publisher_name: String,
         schema: String,
         format_version: Version,
-    ) -> Result<MessageSchema, serde_json::Error>
+    ) -> Result<ValidatedMessage, serde_json::Error>
     where
         D: Serialize,
     {
-        Ok(MessageSchema {
+        Ok(ValidatedMessage {
             id: self.id.unwrap_or_else(Uuid::new_v4),
-            metadata: MetadataSchema {
+            metadata: Metadata {
                 timestamp: self.timestamp.as_millis(),
                 publisher: publisher_name,
                 headers: self.headers.unwrap_or_else(HashMap::new),
@@ -656,26 +656,26 @@ impl<D, T> Message<D, T> {
 
 /// Additional metadata associated with a message
 #[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct MetadataSchema {
+pub struct Metadata {
     /// The timestamp when message was created in the publishing service
-    pub timestamp: u128,
+    timestamp: u128,
 
     /// Name of the publishing service
-    pub publisher: String,
+    publisher: String,
 
     /// Custom headers. This may be used to track request_id, for example.
-    pub headers: Headers,
+    headers: Headers,
 }
 
 /// A validated message.
 ///
 /// This data type is the schema or the json messages being sent over the wire.
 #[derive(Debug, Serialize)]
-pub struct MessageSchema {
+pub struct ValidatedMessage {
     /// An unique message identifier.
     id: Uuid,
     /// The metadata associated with the message.
-    metadata: MetadataSchema,
+    metadata: Metadata,
     /// URI of the schema validating this message.
     ///
     /// E.g. `https://hedwig.domain.xyz/schemas#/schemas/user.created/1.0`
