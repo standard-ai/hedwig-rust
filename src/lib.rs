@@ -511,6 +511,17 @@ where
             messages: Vec::new(),
         }
     }
+
+    /// A convenience shortcut to publish a single message.
+    ///
+    /// Equivalent to `hedwig.build_publish().message(msg)?.publish()`.
+    pub fn publish<D>(&self, msg: Message<D, T>) -> Result<P::MessageIds, PublishError>
+    where
+        D: Serialize,
+        T: Copy + Into<&'static str>,
+    {
+        self.build_publish().message(msg)?.publish()
+    }
 }
 
 /// A builder for batch publish.
