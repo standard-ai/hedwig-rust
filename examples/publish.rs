@@ -1,7 +1,7 @@
 use std::env;
 
 use failure;
-use hedwig::{GooglePublisher, Headers, Hedwig, MajorVersion, MinorVersion, Version};
+use hedwig::{GooglePublisher, Hedwig, MajorVersion, Message, MinorVersion, Version};
 use serde::Serialize;
 use strum_macros::IntoStaticStr;
 
@@ -70,24 +70,21 @@ fn main() -> Result<(), failure::Error> {
 
     let hedwig = Hedwig::new(schema, PUBLISHER, publisher, router)?;
 
-    let mut headers = Headers::new();
-    headers.insert("request_id".to_string(), uuid::Uuid::new_v4().to_string());
-
     let data = UserCreatedData {
         user_id: "U_123".into(),
     };
 
-    let mut message = hedwig.message(MessageType::UserCreated, VERSION_1_0, data)?;
-    message.with_headers(headers);
+    let message_id = uuid::Uuid::new_v4();
+    hedwig
+        .build_publish()
+        .message(
+            Message::new(MessageType::UserCreated, VERSION_1_0, data)
+                .id(message_id)
+                .header("request_id", uuid::Uuid::new_v4().to_string()),
+        )?
+        .publish()?;
 
-    let message_id = message.id;
-
-    let publish_id = hedwig.publish(message)?;
-
-    println!(
-        "Published message {} with pubsub id: {}",
-        message_id, publish_id
-    );
+    println!("Published message {}", message_id);
 
     Ok(())
 }
