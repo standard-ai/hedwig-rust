@@ -6,3 +6,5 @@
 
 # Private examples
 examples/private
+
+Cargo.lock
