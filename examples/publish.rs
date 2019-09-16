@@ -75,14 +75,13 @@ fn main() -> Result<(), failure::Error> {
     };
 
     let message_id = uuid::Uuid::new_v4();
-    hedwig
-        .build_publish()
-        .message(
-            Message::new(MessageType::UserCreated, VERSION_1_0, data)
-                .id(message_id)
-                .header("request_id", uuid::Uuid::new_v4().to_string()),
-        )?
-        .publish()?;
+    let mut builder = hedwig.build_publish();
+    builder.message(
+        Message::new(MessageType::UserCreated, VERSION_1_0, data)
+            .id(message_id)
+            .header("request_id", uuid::Uuid::new_v4().to_string()),
+    )?;
+    builder.publish()?;
 
     println!("Published message {}", message_id);
 

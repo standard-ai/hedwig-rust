@@ -82,6 +82,7 @@
 //!     # #[cfg(feature = "mock")]
 //!     # let publisher = MockPublisher::default();
 //!     # #[cfg(any(feature = "google", feature="mock"))]
+//!     # {
 //!
 //!     let hedwig = Hedwig::new(
 //!         schema,
@@ -90,12 +91,15 @@
 //!         router,
 //!     )?;
 //!
-//!     # #[cfg(any(feature = "google", feature="mock"))]
-//!     let message = hedwig.build_publish().message(
+//!     let mut builder = hedwig.build_publish();
+//!     builder.message(
 //!         Message::new(MessageType::UserCreated,
 //!         Version(MajorVersion(1), MinorVersion(0)),
 //!         UserCreatedData { user_id: "U_123".into() })
-//!     )?.publish()?;
+//!     )?;
+//!     let message = builder.publish()?;
+//!
+//!     # }
 //!     # Ok(())
 //! # }
 //! ```
@@ -193,8 +197,10 @@ pub trait Publisher {
     /// no semantic meaning.
     ///
     /// Shall return `Ok` only if all of the messages are successfully published.
-    fn publish(&self, messages: Vec<(&'static str, ValidatedMessage)>)
-    -> Result<Self::MessageIds, PublishError>;
+    fn publish(
+        &self,
+        messages: Vec<(&'static str, ValidatedMessage)>,
+    ) -> Result<Self::MessageIds, PublishError>;
 }
 
 /// A publisher that uses Google PubSub. To use this class, add feature `google`.
@@ -265,7 +271,8 @@ impl GooglePublisher {
         batch: Vec<pubsub1::PubsubMessage>,
         id_vec: &mut <Self as Publisher>::MessageIds,
     ) -> Result<(), PublishError> {
-        let (_, response) = self.client
+        let (_, response) = self
+            .client
             .projects()
             .topics_publish(
                 pubsub1::PublishRequest {
@@ -352,8 +359,10 @@ pub struct MockPublisher {
 impl Publisher for MockPublisher {
     type MessageIds = ();
 
-    fn publish(&self, messages: Vec<(&'static str, ValidatedMessage)>)
-    -> Result<Self::MessageIds, PublishError> {
+    fn publish(
+        &self,
+        messages: Vec<(&'static str, ValidatedMessage)>,
+    ) -> Result<Self::MessageIds, PublishError> {
         for (_, message) in messages {
             let serialized =
                 serde_json::to_string(&message).map_err(PublishError::SerializationError)?;
@@ -520,7 +529,9 @@ where
         D: Serialize,
         T: Copy + Into<&'static str>,
     {
-        self.build_publish().message(msg)?.publish()
+        let mut builder = self.build_publish();
+        builder.message(msg)?;
+        builder.publish()
     }
 }
 
@@ -533,7 +544,7 @@ pub struct HedwigPublishBuilder<'hedwig, T, P> {
 
 impl<'hedwig, T, P> HedwigPublishBuilder<'hedwig, T, P> {
     /// Add a message to be published in a batch.
-    pub fn message<D>(mut self, msg: Message<D, T>) -> Result<Self, PublishError>
+    pub fn message<D>(&mut self, msg: Message<D, T>) -> Result<&mut Self, PublishError>
     where
         D: Serialize,
         T: Copy + Into<&'static str>,
@@ -732,9 +743,11 @@ mod tests {
         UserCreated,
 
         #[strum(serialize = "invalid.schema")]
+        #[cfg(feature = "mock")]
         InvalidSchema,
 
         #[strum(serialize = "invalid.route")]
+        #[cfg(feature = "mock")]
         InvalidRoute,
     }
 
@@ -745,6 +758,7 @@ mod tests {
 
     const VERSION_1_0: Version = Version(MajorVersion(1), MinorVersion(0));
 
+    #[cfg(feature = "mock")]
     const SCHEMA: &str = r#"
 {
   "$id": "https://hedwig.standard.ai/schema",
@@ -781,6 +795,7 @@ mod tests {
   }
 }"#;
 
+    #[cfg(feature = "mock")]
     fn router(t: MessageType, v: MajorVersion) -> Option<&'static str> {
         match (t, v) {
             (MessageType::UserCreated, MajorVersion(1)) => Some("dev-user-created-v1"),
@@ -859,12 +874,9 @@ mod tests {
         .header("request_id", request_id.clone())
         .id(msg_id);
         custom_headers.insert("request_id".to_owned(), request_id);
-        hedwig
-            .build_publish()
-            .message(message.clone())
-            .unwrap()
-            .publish()
-            .unwrap();
+        let mut builder = hedwig.build_publish();
+        builder.message(message.clone()).unwrap();
+        builder.publish().unwrap();
         hedwig
             .publisher
             .assert_message_published(&message, &custom_headers);
@@ -913,8 +925,11 @@ mod tests {
         user_ids.insert(vec![32, 64], "U_123".to_owned());
         let data = BadUserCreatedData { user_ids };
         let m = Message::new(MessageType::UserCreated, VERSION_1_0, data);
-        let r = hedwig.build_publish().message(m);
-        assert_matches!(r.err(), Some(PublishError::SerializationError(_)));
+        let mut builder = hedwig.build_publish();
+        assert_matches!(
+            builder.message(m).err(),
+            Some(PublishError::SerializationError(_))
+        );
     }
 
     #[test]
@@ -922,8 +937,8 @@ mod tests {
     fn message_router_error() {
         let hedwig = mock_hedwig();
         let m = Message::new(MessageType::InvalidRoute, VERSION_1_0, ());
-        let r = hedwig.build_publish().message(m);
-        assert_matches!(r.err(), Some(PublishError::RouteError(_)));
+        let mut builder = hedwig.build_publish();
+        assert_matches!(builder.message(m).err(), Some(PublishError::RouteError(_)));
     }
 
     #[test]
@@ -931,8 +946,11 @@ mod tests {
     fn message_invalid_schema_error() {
         let hedwig = mock_hedwig();
         let m = Message::new(MessageType::InvalidSchema, VERSION_1_0, ());
-        let r = hedwig.build_publish().message(m);
-        assert_matches!(r.err(), Some(PublishError::UnresolvableSchemaUrl(_)));
+        let mut builder = hedwig.build_publish();
+        assert_matches!(
+            builder.message(m).err(),
+            Some(PublishError::UnresolvableSchemaUrl(_))
+        );
     }
 
     #[test]
@@ -945,7 +963,10 @@ mod tests {
         };
         let data = BadUserCreatedData { user_ids: vec![1] };
         let m = Message::new(MessageType::UserCreated, VERSION_1_0, data);
-        let r = hedwig.build_publish().message(m);
-        assert_matches!(r.err(), Some(PublishError::DataValidationError(_)));
+        let mut builder = hedwig.build_publish();
+        assert_matches!(
+            builder.message(m).err(),
+            Some(PublishError::DataValidationError(_))
+        );
     }
 }
