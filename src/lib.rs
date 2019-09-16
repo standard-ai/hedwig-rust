@@ -82,6 +82,7 @@
 //!     # #[cfg(feature = "mock")]
 //!     # let publisher = MockPublisher::default();
 //!     # #[cfg(any(feature = "google", feature="mock"))]
+//!     # {
 //!
 //!     let hedwig = Hedwig::new(
 //!         schema,
@@ -97,6 +98,8 @@
 //!         UserCreatedData { user_id: "U_123".into() })
 //!     )?;
 //!     let message = builder.publish()?;
+//!
+//!     # }
 //!     # Ok(())
 //! # }
 //! ```
