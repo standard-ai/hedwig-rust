@@ -24,7 +24,7 @@
 //! # use serde::Serialize;
 //! # use strum_macros::IntoStaticStr;
 //!
-//! fn main() -> Result<(), failure::Error> {
+//! fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let schema = r#"
 //!     {
 //!       "$id": "https://hedwig.standard.ai/schema",
@@ -119,7 +119,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(feature = "google")]
 use base64;
-use failure::Fail;
 #[cfg(feature = "google")]
 use google_pubsub1::{self as pubsub1, Pubsub};
 #[cfg(feature = "google")]
@@ -137,51 +136,48 @@ const FORMAT_VERSION_V1: Version = Version(MajorVersion(1), MinorVersion(0));
 
 /// All errors that may be returned when instantiating a new Hedwig instance.
 #[allow(missing_docs)]
-#[derive(Debug, Fail)]
-pub enum HedwigError {
-    #[fail(display = "Credentials file {:?} couldn't be read", _1)]
-    CannotOpenCredentialsFile(#[cause] io::Error, std::path::PathBuf),
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum Error {
+    #[error("Credentials file {1:?} could not be read")]
+    CredentialFileOpen(#[source] io::Error, std::path::PathBuf),
 
-    #[fail(display = "Credentials file {:?} couldn't be parsed", _1)]
-    CannotParseCredentialsFile(#[cause] serde_json::Error, std::path::PathBuf),
+    #[error("Credentials file {1:?} could not be parsed")]
+    CredentialFileParse(#[source] serde_json::Error, std::path::PathBuf),
 
-    #[fail(display = "Unable to deserialize schema")]
-    DeserializationError(#[cause] serde_json::Error),
+    #[error("Unable to deserialize schema")]
+    SchemaDeserialization(#[source] serde_json::Error),
 
-    #[fail(display = "Schema failed to compile")]
-    SchemaCompileError(#[cause] SchemaError),
-}
-
-impl From<SchemaError> for HedwigError {
-    fn from(e: SchemaError) -> Self {
-        HedwigError::SchemaCompileError(e)
-    }
+    #[error("Schema failed to compile")]
+    SchemaCompilation(#[from] SchemaError),
 }
 
 /// All errors that may be returned while publishing a message.
 #[allow(missing_docs)]
-#[derive(Debug, Fail)]
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum PublishError {
-    #[fail(display = "Unable to serialize message")]
-    SerializationError(#[cause] serde_json::Error),
+    #[error("Unable to serialize message")]
+    MessageSerialization(#[source] serde_json::Error),
 
-    #[fail(display = "Message {} is not routable", _0)]
-    RouteError(Uuid),
+    #[error("Message {0} is not routable")]
+    MessageRouting(Uuid),
 
-    #[fail(display = "API failure occurred when publishing message")]
-    PublishAPIFailure(#[cause] failure::Error),
+    // FIXME: move to google_pubsub1::Error once it supports Send + Sync
+    #[error("Message could not be published: {0}")]
+    MessagePublish(String),
 
-    #[fail(display = "Invalid from publish API: can't find published message id")]
-    InvalidResponseNoMessageId,
+    #[error("Invalid from publish API: can't find published message id")]
+    ResponseLacksId,
 
-    #[fail(display = "Could not parse `{}` as a schema URL", _1)]
-    InvalidSchemaUrl(#[cause] url::ParseError, String),
+    #[error("Could not parse `{1}` as a schema URL")]
+    SchemaUrlParsing(#[source] url::ParseError, String),
 
-    #[fail(display = "Could not resolve `{}` to a schema", _0)]
-    UnresolvableSchemaUrl(url::Url),
+    #[error("Could not resolve `{0}` to a schema")]
+    SchemaUrlResolving(url::Url),
 
-    #[fail(display = "Message data doesn't validate per the schema")]
-    DataValidationError(#[cause] failure::Error),
+    #[error("Message data does not validate per the schema: {0}")]
+    DataValidation(String),
 }
 
 /// Message publishers.
@@ -210,7 +206,7 @@ pub trait Publisher {
 /// ```no_run
 /// # #[cfg(feature = "google")]
 /// # use hedwig::{Publisher, GooglePublisher};
-/// # fn main() -> Result<(), failure::Error> {
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # #[cfg(feature = "google")]
 /// let publisher = GooglePublisher::new(String::from("/home/.google-key.json"), "myproject".into())?;
 /// # Ok(())
@@ -237,7 +233,7 @@ impl GooglePublisher {
     pub fn new<P>(
         google_application_credentials: P,
         google_cloud_project: String,
-    ) -> Result<GooglePublisher, HedwigError>
+    ) -> Result<GooglePublisher, Error>
     where
         P: AsRef<Path>,
     {
@@ -245,9 +241,9 @@ impl GooglePublisher {
         let f = std::fs::OpenOptions::new()
             .read(true)
             .open(path)
-            .map_err(|e| HedwigError::CannotOpenCredentialsFile(e, path.into()))?;
-        let client_secret: oauth2::ServiceAccountKey = serde_json::from_reader(f)
-            .map_err(|e| HedwigError::CannotParseCredentialsFile(e, path.into()))?;
+            .map_err(|e| Error::CredentialFileOpen(e, path.into()))?;
+        let client_secret: oauth2::ServiceAccountKey =
+            serde_json::from_reader(f).map_err(|e| Error::CredentialFileParse(e, path.into()))?;
 
         let auth_https = HttpsConnector::new(hyper_rustls::TlsClient::new());
         let auth_client = hyper::Client::with_connector(auth_https);
@@ -285,7 +281,7 @@ impl GooglePublisher {
                 .as_ref(),
             )
             .doit()
-            .map_err(|e| PublishError::PublishAPIFailure(failure::err_msg(format!("{}", e))))?;
+            .map_err(|e| PublishError::MessagePublish(format!("{}", e)))?;
         if let Some(ids) = response.message_ids {
             id_vec.extend(ids.into_iter());
         }
@@ -317,7 +313,7 @@ impl Publisher for GooglePublisher {
             current_topic = topic;
 
             let raw_message =
-                serde_json::to_string(&message).map_err(PublishError::SerializationError)?;
+                serde_json::to_string(&message).map_err(PublishError::MessageSerialization)?;
             current_batch.push(pubsub1::PubsubMessage {
                 data: Some(base64::encode(&raw_message)),
                 attributes: Some(message.metadata.headers),
@@ -365,7 +361,7 @@ impl Publisher for MockPublisher {
     ) -> Result<Self::MessageIds, PublishError> {
         for (_, message) in messages {
             let serialized =
-                serde_json::to_string(&message).map_err(PublishError::SerializationError)?;
+                serde_json::to_string(&message).map_err(PublishError::MessageSerialization)?;
             self.published_messages
                 .borrow_mut()
                 .insert(message.id, (serialized, message.metadata.headers));
@@ -380,9 +376,9 @@ struct Validator {
 }
 
 impl Validator {
-    fn new(schema: &str) -> Result<Validator, HedwigError> {
+    fn new(schema: &str) -> Result<Validator, Error> {
         let master_schema: serde_json::Value =
-            serde_json::from_str(schema).map_err(HedwigError::DeserializationError)?;
+            serde_json::from_str(schema).map_err(Error::SchemaDeserialization)?;
 
         let mut scope = Scope::new();
         let schema_id = scope.compile(master_schema, false)?;
@@ -401,19 +397,20 @@ impl Validator {
         // convert user.created/1.0 -> user.created/1.*
         let msg_schema_ptr = schema.trim_end_matches(char::is_numeric).to_owned() + "*";
         let msg_schema_url = url::Url::parse(&msg_schema_ptr)
-            .map_err(|e| PublishError::InvalidSchemaUrl(e, msg_schema_ptr))?;
+            .map_err(|e| PublishError::SchemaUrlParsing(e, msg_schema_ptr))?;
         let msg_schema = self
             .scope
             .resolve(&msg_schema_url)
-            .ok_or_else(|| PublishError::UnresolvableSchemaUrl(msg_schema_url))?;
+            .ok_or_else(|| PublishError::SchemaUrlResolving(msg_schema_url))?;
 
         let msg_data =
-            serde_json::to_value(&message.data).map_err(PublishError::SerializationError)?;
+            serde_json::to_value(&message.data).map_err(PublishError::MessageSerialization)?;
 
         let validation_state = msg_schema.validate(&msg_data);
         if !validation_state.is_strictly_valid() {
-            return Err(PublishError::DataValidationError(failure::err_msg(
-                format!("{:?}", validation_state),
+            return Err(PublishError::DataValidation(format!(
+                "{:?}",
+                validation_state
             )));
         }
         Ok(validation_state)
@@ -504,7 +501,7 @@ where
         publisher_name: &str,
         publisher: P,
         message_router: MessageRouter<T>,
-    ) -> Result<Hedwig<T, P>, HedwigError> {
+    ) -> Result<Hedwig<T, P>, Error> {
         Ok(Hedwig {
             validator: Validator::new(schema)?,
             publisher_name: String::from(publisher_name),
@@ -563,9 +560,9 @@ impl<'hedwig, T, P> HedwigPublishBuilder<'hedwig, T, P> {
                 schema_url,
                 FORMAT_VERSION_V1,
             )
-            .map_err(PublishError::SerializationError)?;
+            .map_err(PublishError::MessageSerialization)?;
         let route = (self.hedwig.message_router)(data_type, converted.format_version.0)
-            .ok_or_else(|| PublishError::RouteError(converted.id))?;
+            .ok_or_else(|| PublishError::MessageRouting(converted.id))?;
         self.messages.push((route, converted));
         Ok(self)
     }
@@ -886,13 +883,13 @@ mod tests {
     #[cfg(feature = "google")]
     fn google_publisher_credentials_error() {
         let r = GooglePublisher::new("path does not exist", "myproject".into());
-        assert_matches!(r.err(), Some(HedwigError::CannotOpenCredentialsFile(_, _)));
+        assert_matches!(r.err(), Some(Error::CredentialFileOpen(_, _)));
     }
 
     #[test]
     fn validator_deserialization_error() {
         let r = Validator::new("bad json");
-        assert_matches!(r.err(), Some(HedwigError::DeserializationError(_)));
+        assert_matches!(r.err(), Some(Error::SchemaDeserialization(_)));
     }
 
     #[test]
@@ -910,7 +907,7 @@ mod tests {
 }"#;
 
         let r = Validator::new(BAD_SCHEMA);
-        assert_matches!(r.err(), Some(HedwigError::SchemaCompileError(_)));
+        assert_matches!(r.err(), Some(Error::SchemaCompilation(_)));
     }
 
     #[test]
@@ -928,7 +925,7 @@ mod tests {
         let mut builder = hedwig.build_publish();
         assert_matches!(
             builder.message(m).err(),
-            Some(PublishError::SerializationError(_))
+            Some(PublishError::MessageSerialization(_))
         );
     }
 
@@ -938,7 +935,10 @@ mod tests {
         let hedwig = mock_hedwig();
         let m = Message::new(MessageType::InvalidRoute, VERSION_1_0, ());
         let mut builder = hedwig.build_publish();
-        assert_matches!(builder.message(m).err(), Some(PublishError::RouteError(_)));
+        assert_matches!(
+            builder.message(m).err(),
+            Some(PublishError::MessageRouting(_))
+        );
     }
 
     #[test]
@@ -949,7 +949,7 @@ mod tests {
         let mut builder = hedwig.build_publish();
         assert_matches!(
             builder.message(m).err(),
-            Some(PublishError::UnresolvableSchemaUrl(_))
+            Some(PublishError::SchemaUrlResolving(_))
         );
     }
 
@@ -966,7 +966,14 @@ mod tests {
         let mut builder = hedwig.build_publish();
         assert_matches!(
             builder.message(m).err(),
-            Some(PublishError::DataValidationError(_))
+            Some(PublishError::DataValidation(_))
         );
+    }
+
+    #[test]
+    fn errors_send_sync() {
+        fn assert_error<T: std::error::Error + Send + Sync + 'static>() {}
+        assert_error::<Error>();
+        assert_error::<PublishError>();
     }
 }

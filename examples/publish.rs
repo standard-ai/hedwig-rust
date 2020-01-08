@@ -1,6 +1,5 @@
 use std::env;
 
-use failure;
 use hedwig::{GooglePublisher, Hedwig, MajorVersion, Message, MinorVersion, Version};
 use serde::Serialize;
 use strum_macros::IntoStaticStr;
@@ -27,7 +26,7 @@ fn router(t: MessageType, v: MajorVersion) -> Option<&'static str> {
     }
 }
 
-fn main() -> Result<(), failure::Error> {
+fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
     let google_credentials = env::var("GOOGLE_APPLICATION_CREDENTIALS")
         .expect("env var GOOGLE_APPLICATION_CREDENTIALS is required");
     let google_project =
