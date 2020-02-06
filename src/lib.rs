@@ -1,13 +1,3 @@
-#![deny(missing_docs, unused_import_braces, unused_qualifications)]
-#![warn(
-    missing_debug_implementations,
-    missing_copy_implementations,
-    trivial_casts,
-    trivial_numeric_casts,
-    unsafe_code,
-    unstable_features
-)]
-
 //! A Hedwig library for Rust. Hedwig is a message bus that works with arbitrary pubsub services
 //! such as AWS SNS/SQS or Google Cloud Pubsub. Messages are validated using a JSON schema. The
 //! publisher and consumer are de-coupled and fan-out is supported out of the box.
@@ -15,11 +5,7 @@
 //! # Example: publish a new message
 //!
 //! ```no_run
-//! use hedwig::{Hedwig, MajorVersion, MinorVersion, Version, Message};
-//! # #[cfg(feature = "google")]
-//! # use hedwig::GooglePublisher;
-//! # #[cfg(feature = "mock")]
-//! # use hedwig::MockPublisher;
+//! use hedwig::{Hedwig, MajorVersion, MinorVersion, Version, Message, publishers::MockPublisher};
 //! # use std::path::Path;
 //! # use serde::Serialize;
 //! # use strum_macros::IntoStaticStr;
@@ -77,13 +63,7 @@
 //!     }
 //!
 //!     // create a publisher instance
-//!     # #[cfg(feature = "google")]
-//!     # let publisher = GooglePublisher::new(String::from("/home/.google-key.json"), "myproject".into())?;
-//!     # #[cfg(feature = "mock")]
-//!     # let publisher = MockPublisher::default();
-//!     # #[cfg(any(feature = "google", feature="mock"))]
-//!     # {
-//!
+//!     let publisher = MockPublisher::default();
 //!     let hedwig = Hedwig::new(
 //!         schema,
 //!         "myapp",
@@ -91,284 +71,129 @@
 //!         router,
 //!     )?;
 //!
-//!     let mut builder = hedwig.build_publish();
-//!     builder.message(
-//!         Message::new(MessageType::UserCreated,
-//!         Version(MajorVersion(1), MinorVersion(0)),
-//!         UserCreatedData { user_id: "U_123".into() })
-//!     )?;
-//!     let message = builder.publish()?;
+//!     async {
+//!         let published_ids = hedwig.publish(Message::new(
+//!             MessageType::UserCreated,
+//!             Version(MajorVersion(1), MinorVersion(0)),
+//!             UserCreatedData { user_id: "U_123".into() }
+//!         )).await;
+//!     };
 //!
-//!     # }
 //!     # Ok(())
 //! # }
 //! ```
+#![deny(missing_docs, unused_import_braces, unused_qualifications)]
+#![warn(trivial_casts, trivial_numeric_casts, unsafe_code, unstable_features)]
 
-#[cfg(feature = "mock")]
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::convert::From;
-#[cfg(feature = "google")]
-use std::default::Default;
-use std::fmt;
-use std::io;
-#[cfg(feature = "google")]
-use std::path::Path;
-use std::result::Result;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::HashMap,
+    fmt,
+    future::Future,
+    mem,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
-#[cfg(feature = "google")]
-use base64;
-#[cfg(feature = "google")]
-use google_pubsub1::{self as pubsub1, Pubsub};
-#[cfg(feature = "google")]
-use hyper::{self, net::HttpsConnector, Client};
-#[cfg(feature = "google")]
-use hyper_rustls;
-use serde::Serialize;
+use futures::stream::StreamExt;
 use serde_json;
 use uuid::Uuid;
 use valico::json_schema::{SchemaError, Scope, ValidationState};
+
 #[cfg(feature = "google")]
-use yup_oauth2 as oauth2;
+mod google_publisher;
+mod mock_publisher;
+mod null_publisher;
+
+/// Implementations of the Publisher trait
+pub mod publishers {
+    #[cfg(feature = "google")]
+    pub use super::google_publisher::GooglePubSubPublisher;
+    pub use super::mock_publisher::MockPublisher;
+    pub use super::null_publisher::NullPublisher;
+}
 
 const FORMAT_VERSION_V1: Version = Version(MajorVersion(1), MinorVersion(0));
 
 /// All errors that may be returned when instantiating a new Hedwig instance.
-#[allow(missing_docs)]
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
-    #[error("Credentials file {1:?} could not be read")]
-    CredentialFileOpen(#[source] io::Error, std::path::PathBuf),
-
-    #[error("Credentials file {1:?} could not be parsed")]
-    CredentialFileParse(#[source] serde_json::Error, std::path::PathBuf),
-
+    /// Unable to deserialize schema
     #[error("Unable to deserialize schema")]
-    SchemaDeserialization(#[source] serde_json::Error),
+    SchemaDeserialize(#[source] serde_json::Error),
 
+    /// Schema failed to compile
     #[error("Schema failed to compile")]
-    SchemaCompilation(#[from] SchemaError),
-}
+    SchemaCompile(#[from] SchemaError),
 
-/// All errors that may be returned while publishing a message.
-#[allow(missing_docs)]
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum PublishError {
+    /// Unable to serialize message
     #[error("Unable to serialize message")]
-    MessageSerialization(#[source] serde_json::Error),
+    MessageSerialize(#[source] serde_json::Error),
 
+    /// Message is not routable
     #[error("Message {0} is not routable")]
-    MessageRouting(Uuid),
+    MessageRoute(Uuid),
 
-    // FIXME: move to google_pubsub1::Error once it supports Send + Sync
-    #[error("Message could not be published: {0}")]
-    MessagePublish(String),
-
-    #[error("Invalid from publish API: can't find published message id")]
-    ResponseLacksId,
-
+    /// Could not parse a schema URL
     #[error("Could not parse `{1}` as a schema URL")]
-    SchemaUrlParsing(#[source] url::ParseError, String),
+    SchemaUrlParse(#[source] url::ParseError, String),
 
+    /// Could not resolve the schema URL
     #[error("Could not resolve `{0}` to a schema")]
-    SchemaUrlResolving(url::Url),
+    SchemaUrlResolve(url::Url),
 
+    /// Could not validate message data
     #[error("Message data does not validate per the schema: {0}")]
     DataValidation(String),
+
+    /// Publisher failed to publish a message
+    #[error("Publisher failed to publish a message batch")]
+    Publisher(#[source] Box<dyn std::error::Error + Send + Sync>),
+
+    /// Publisher failed to publish multiple batches of messages
+    #[error("Publisher failed to publish multiple batches (total of {} errors)", _1.len() + 1)]
+    PublisherMultiple(
+        #[source] Box<dyn std::error::Error + Send + Sync>,
+        Vec<Box<dyn std::error::Error + Send + Sync>>,
+    ),
 }
 
-/// Message publishers.
-///
-/// This is used to interface with arbitrary pub-sub services.
+/// The special result type for [`Publisher::publish`](trait.Publisher.html)
+#[derive(Debug)]
+pub enum PublisherResult<Id> {
+    /// Publisher succeeded.
+    ///
+    /// Contains a vector of published message IDs.
+    Success(Vec<Id>),
+    /// Publisher failed to publish any of the messages.
+    OneError(
+        Box<dyn std::error::Error + Send + Sync>,
+        Vec<ValidatedMessage>,
+    ),
+    /// Publisher failed to publish some of the messages.
+    ///
+    /// The error type has a per-message granularity.
+    PerMessage(Vec<Result<Id, (Box<dyn std::error::Error + Send + Sync>, ValidatedMessage)>>),
+}
+
+/// Interface for message publishers
 pub trait Publisher {
-    /// The list of identifiers for successfully published messages.
-    type MessageIds;
+    /// The list of identifiers for successfully published messages
+    type MessageId: 'static;
+    /// The future that the `publish` method returns
+    type PublishFuture: Future<Output = PublisherResult<Self::MessageId>> + Send;
 
-    /// Publish a Hedwig message.
+    /// Publish a batch of messages
     ///
-    /// The Vector of topic-message pairs is passed in. This vector is not sorted and ordering has
-    /// no semantic meaning.
+    /// # Return value
     ///
-    /// Shall return `Ok` only if all of the messages are successfully published.
-    fn publish(
-        &self,
-        messages: Vec<(&'static str, ValidatedMessage)>,
-    ) -> Result<Self::MessageIds, PublishError>;
-}
-
-/// A publisher that uses Google PubSub. To use this class, add feature `google`.
-///
-/// # Examples
-///
-/// ```no_run
-/// # #[cfg(feature = "google")]
-/// # use hedwig::{Publisher, GooglePublisher};
-/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// # #[cfg(feature = "google")]
-/// let publisher = GooglePublisher::new(String::from("/home/.google-key.json"), "myproject".into())?;
-/// # Ok(())
-/// # }
-/// ```
-#[cfg(feature = "google")]
-#[allow(missing_debug_implementations)]
-pub struct GooglePublisher {
-    client: Pubsub<Client, oauth2::ServiceAccountAccess<Client>>,
-    google_cloud_project: String,
-}
-
-#[cfg(feature = "google")]
-impl GooglePublisher {
-    /// Create a new instance of GooglePublisher
-    /// For now, this requires explicitly passing in the path to your credentials file, as well as the name of the
-    /// project where pubsub infra lives.
-    ///
-    /// # Arguments
-    ///
-    /// * google_application_credentials - Path to the google credentials file.
-    /// * google_cloud_project - The Google Cloud project where your pubsub resources lie - this /may be/ different
-    /// from the credentials.
-    pub fn new<P>(
-        google_application_credentials: P,
-        google_cloud_project: String,
-    ) -> Result<GooglePublisher, Error>
-    where
-        P: AsRef<Path>,
-    {
-        let path = google_application_credentials.as_ref();
-        let f = std::fs::OpenOptions::new()
-            .read(true)
-            .open(path)
-            .map_err(|e| Error::CredentialFileOpen(e, path.into()))?;
-        let client_secret: oauth2::ServiceAccountKey =
-            serde_json::from_reader(f).map_err(|e| Error::CredentialFileParse(e, path.into()))?;
-
-        let auth_https = HttpsConnector::new(hyper_rustls::TlsClient::new());
-        let auth_client = hyper::Client::with_connector(auth_https);
-
-        let access = oauth2::ServiceAccountAccess::new(client_secret, auth_client);
-
-        let https = HttpsConnector::new(hyper_rustls::TlsClient::new());
-        let pubsub_client = hyper::Client::with_connector(https);
-
-        let client = Pubsub::new(pubsub_client, access);
-
-        Ok(GooglePublisher {
-            client,
-            google_cloud_project,
-        })
-    }
-
-    fn publish_batch(
-        &self,
-        topic: &str,
-        batch: Vec<pubsub1::PubsubMessage>,
-        id_vec: &mut <Self as Publisher>::MessageIds,
-    ) -> Result<(), PublishError> {
-        let (_, response) = self
-            .client
-            .projects()
-            .topics_publish(
-                pubsub1::PublishRequest {
-                    messages: Some(batch),
-                },
-                format!(
-                    "projects/{}/topics/hedwig-{}",
-                    self.google_cloud_project, topic
-                )
-                .as_ref(),
-            )
-            .doit()
-            .map_err(|e| PublishError::MessagePublish(format!("{}", e)))?;
-        if let Some(ids) = response.message_ids {
-            id_vec.extend(ids.into_iter());
-        }
-        Ok(())
-    }
-}
-
-#[cfg(feature = "google")]
-impl Publisher for GooglePublisher {
-    type MessageIds = Vec<String>;
-
-    /// Publishes a message on Google Pubsub and returns a pubsub id (usually an integer).
-    fn publish(
-        &self,
-        mut messages: Vec<(&'static str, ValidatedMessage)>,
-    ) -> Result<Self::MessageIds, PublishError> {
-        let mut message_ids = Vec::with_capacity(messages.len());
-        // First sort the messages by the route
-        messages.sort_by_key(|&(k, _)| k);
-
-        let mut current_topic = "";
-        let mut current_batch = Vec::new();
-
-        for (topic, message) in messages {
-            if current_topic != topic && !current_batch.is_empty() {
-                self.publish_batch(current_topic, current_batch, &mut message_ids)?;
-                current_batch = Vec::new();
-            }
-            current_topic = topic;
-
-            let raw_message =
-                serde_json::to_string(&message).map_err(PublishError::MessageSerialization)?;
-            current_batch.push(pubsub1::PubsubMessage {
-                data: Some(base64::encode(&raw_message)),
-                attributes: Some(message.metadata.headers),
-                ..Default::default()
-            })
-        }
-
-        if !current_batch.is_empty() {
-            self.publish_batch(current_topic, current_batch, &mut message_ids)?;
-        }
-
-        Ok(message_ids)
-    }
+    /// Shall return [`PublisherResult::Success`](PublisherResult::Success) only if all of the messages are successfully
+    /// published. Otherwise `PublisherResult::OneError` or `PublisherResult::PerMessage` shall be
+    /// returned to indicate an error.
+    fn publish(&self, topic: &'static str, messages: Vec<ValidatedMessage>) -> Self::PublishFuture;
 }
 
 /// Type alias for custom headers associated with a message
 type Headers = HashMap<String, String>;
-
-/// A mock publisher that doesn't publish messages, but just stores them in-memory for later verification
-/// This is useful primarily in tests. To use this class, add feature `mock`.
-///
-/// # Examples
-///
-/// ```
-/// # #[cfg(feature = "mock")]
-/// use hedwig::MockPublisher;
-///
-/// # #[cfg(feature = "mock")]
-/// let publisher = MockPublisher::default();
-/// ```
-#[cfg(feature = "mock")]
-#[derive(Debug, Default)]
-pub struct MockPublisher {
-    // `RefCell` for interior mutability
-    published_messages: RefCell<HashMap<Uuid, (String, Headers)>>,
-}
-
-#[cfg(feature = "mock")]
-impl Publisher for MockPublisher {
-    type MessageIds = ();
-
-    fn publish(
-        &self,
-        messages: Vec<(&'static str, ValidatedMessage)>,
-    ) -> Result<Self::MessageIds, PublishError> {
-        for (_, message) in messages {
-            let serialized =
-                serde_json::to_string(&message).map_err(PublishError::MessageSerialization)?;
-            self.published_messages
-                .borrow_mut()
-                .insert(message.id, (serialized, message.metadata.headers));
-        }
-        Ok(())
-    }
-}
 
 struct Validator {
     scope: Scope,
@@ -378,7 +203,7 @@ struct Validator {
 impl Validator {
     fn new(schema: &str) -> Result<Validator, Error> {
         let master_schema: serde_json::Value =
-            serde_json::from_str(schema).map_err(Error::SchemaDeserialization)?;
+            serde_json::from_str(schema).map_err(Error::SchemaDeserialize)?;
 
         let mut scope = Scope::new();
         let schema_id = scope.compile(master_schema, false)?;
@@ -390,35 +215,31 @@ impl Validator {
         &self,
         message: &Message<D, T>,
         schema: &str,
-    ) -> Result<ValidationState, PublishError>
+    ) -> Result<ValidationState, Error>
     where
-        D: Serialize,
+        D: serde::Serialize,
     {
         // convert user.created/1.0 -> user.created/1.*
         let msg_schema_ptr = schema.trim_end_matches(char::is_numeric).to_owned() + "*";
         let msg_schema_url = url::Url::parse(&msg_schema_ptr)
-            .map_err(|e| PublishError::SchemaUrlParsing(e, msg_schema_ptr))?;
+            .map_err(|e| Error::SchemaUrlParse(e, msg_schema_ptr))?;
         let msg_schema = self
             .scope
             .resolve(&msg_schema_url)
-            .ok_or_else(|| PublishError::SchemaUrlResolving(msg_schema_url))?;
+            .ok_or_else(|| Error::SchemaUrlResolve(msg_schema_url))?;
 
-        let msg_data =
-            serde_json::to_value(&message.data).map_err(PublishError::MessageSerialization)?;
+        let msg_data = serde_json::to_value(&message.data).map_err(Error::MessageSerialize)?;
 
         let validation_state = msg_schema.validate(&msg_data);
         if !validation_state.is_strictly_valid() {
-            return Err(PublishError::DataValidation(format!(
-                "{:?}",
-                validation_state
-            )));
+            return Err(Error::DataValidation(format!("{:?}", validation_state)));
         }
         Ok(validation_state)
     }
 }
 
 /// Major part component in semver
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, serde::Serialize)]
 pub struct MajorVersion(pub u8);
 
 impl fmt::Display for MajorVersion {
@@ -428,7 +249,7 @@ impl fmt::Display for MajorVersion {
 }
 
 /// Minor part component in semver
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, serde::Serialize)]
 pub struct MinorVersion(pub u8);
 
 impl fmt::Display for MinorVersion {
@@ -441,7 +262,7 @@ impl fmt::Display for MinorVersion {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct Version(pub MajorVersion, pub MinorVersion);
 
-impl Serialize for Version {
+impl serde::Serialize for Version {
     fn serialize<S>(
         &self,
         serializer: S,
@@ -453,7 +274,7 @@ impl Serialize for Version {
     }
 }
 
-/// `MessageRouter` is a function that maps messages to Hedwig topics.
+/// Mapping of message types to Hedwig topics
 ///
 /// # Examples
 /// ```
@@ -474,7 +295,7 @@ impl Serialize for Version {
 /// ```
 pub type MessageRouter<T> = fn(T, MajorVersion) -> Option<&'static str>;
 
-/// Central instance to access all Hedwig related resources
+/// The core type in this library
 #[allow(missing_debug_implementations)]
 pub struct Hedwig<T, P> {
     validator: Validator,
@@ -487,15 +308,14 @@ impl<T, P> Hedwig<T, P>
 where
     P: Publisher,
 {
-    /// Creates a new Hedwig instance. Application credentials cannot be auto-discovered in Google Cloud environment
-    /// unlike the Python library.
+    /// Creates a new Hedwig instance
     ///
     /// # Arguments
     ///
-    /// * schema: The JSON schema content. It's up to the caller to read the schema from a file.
-    /// * publisher name: Name of the publisher service. This will be part of the metadata in the message.
-    /// * publisher - An implementation of Publisher
-    /// * message_router - A function that can route messages to topics
+    /// * `schema`: The JSON schema content. It's up to the caller to read the schema;
+    /// * `publisher_name`: Name of the publisher service which will be included in the message
+    ///   metadata;
+    /// * `publisher`: An implementation of Publisher;
     pub fn new(
         schema: &str,
         publisher_name: &str,
@@ -510,40 +330,47 @@ where
         })
     }
 
-    /// Create a builder for a batch publish construction.
-    pub fn build_publish(&self) -> HedwigPublishBuilder<T, P> {
-        HedwigPublishBuilder {
+    /// Create a batch of messages to publish
+    ///
+    /// This allows to transparently retry failed messages and send them in batches larger than
+    /// one, leading to potential throughput gains.
+    pub fn build_batch(&self) -> PublishBatch<T, P> {
+        PublishBatch {
             hedwig: self,
             messages: Vec::new(),
         }
     }
 
-    /// A convenience shortcut to publish a single message.
+    /// Publish a single message
     ///
-    /// Equivalent to `hedwig.build_publish().message(msg)?.publish()`.
-    pub fn publish<D>(&self, msg: Message<D, T>) -> Result<P::MessageIds, PublishError>
+    /// Note, that unlike the batch builder, this does not allow recovering failed-to-publish
+    /// messages.
+    pub async fn publish<D>(&self, msg: Message<D, T>) -> Result<P::MessageId, Error>
     where
-        D: Serialize,
+        D: serde::Serialize,
         T: Copy + Into<&'static str>,
     {
-        let mut builder = self.build_publish();
+        let mut builder = self.build_batch();
         builder.message(msg)?;
-        builder.publish()
+        builder.publish_one().await
     }
 }
 
-/// A builder for batch publish.
+/// A builder for publishing in batches
+///
+/// Among other things this structure also enables transparent retrying of failed-to-publish
+/// messages.
 #[allow(missing_debug_implementations)]
-pub struct HedwigPublishBuilder<'hedwig, T, P> {
+pub struct PublishBatch<'hedwig, T, P> {
     hedwig: &'hedwig Hedwig<T, P>,
     messages: Vec<(&'static str, ValidatedMessage)>,
 }
 
-impl<'hedwig, T, P> HedwigPublishBuilder<'hedwig, T, P> {
-    /// Add a message to be published in a batch.
-    pub fn message<D>(&mut self, msg: Message<D, T>) -> Result<&mut Self, PublishError>
+impl<'hedwig, T, P> PublishBatch<'hedwig, T, P> {
+    /// Add a message to be published in a batch
+    pub fn message<D>(&mut self, msg: Message<D, T>) -> Result<&mut Self, Error>
     where
-        D: Serialize,
+        D: serde::Serialize,
         T: Copy + Into<&'static str>,
     {
         let data_type = msg.data_type;
@@ -560,23 +387,111 @@ impl<'hedwig, T, P> HedwigPublishBuilder<'hedwig, T, P> {
                 schema_url,
                 FORMAT_VERSION_V1,
             )
-            .map_err(PublishError::MessageSerialization)?;
+            .map_err(Error::MessageSerialize)?;
         let route = (self.hedwig.message_router)(data_type, converted.format_version.0)
-            .ok_or_else(|| PublishError::MessageRouting(converted.id))?;
+            .ok_or_else(|| Error::MessageRoute(converted.id))?;
         self.messages.push((route, converted));
         Ok(self)
     }
 
-    /// Publish all the messages.
-    pub fn publish(self) -> Result<P::MessageIds, PublishError>
+    /// Publish all the messages
+    ///
+    /// Does not consume the builder. Will return `Ok` only if and when all of the messages from
+    /// the builder have been published successfully. In case of failure, unpublished messages will
+    /// remain enqueued in this builder for a subsequent publish call.
+    pub async fn publish(&mut self) -> Result<Vec<P::MessageId>, Error>
     where
         P: Publisher,
     {
-        self.hedwig.publisher.publish(self.messages)
+        let mut message_ids = Vec::with_capacity(self.messages.len());
+        // Sort the messages by the topic and group them into batches
+        self.messages.sort_by_key(|&(k, _)| k);
+        let mut current_topic = "";
+        let mut current_batch = Vec::new();
+        let mut futures_unordered = futures::stream::FuturesUnordered::new();
+        let publisher = &self.hedwig.publisher;
+        let make_job = |topic: &'static str, batch: Vec<ValidatedMessage>| async move {
+            (topic, publisher.publish(topic, batch).await)
+        };
+
+        for (topic, message) in mem::replace(&mut self.messages, Vec::new()) {
+            if current_topic != topic && !current_batch.is_empty() {
+                let batch = mem::replace(&mut current_batch, Vec::new());
+                futures_unordered.push(make_job(current_topic, batch));
+            }
+            current_topic = topic;
+            current_batch.push(message)
+        }
+        if !current_batch.is_empty() {
+            futures_unordered.push(make_job(current_topic, current_batch));
+        }
+
+        let mut errors = Vec::new();
+        // Extract the results from all the futures
+        while let (Some(result), stream) = futures_unordered.into_future().await {
+            match result {
+                (_, PublisherResult::Success(ids)) => message_ids.extend(ids),
+                (topic, PublisherResult::OneError(err, failed_msgs)) => {
+                    self.messages
+                        .extend(failed_msgs.into_iter().map(|m| (topic, m)));
+                    errors.push(err);
+                }
+                (topic, PublisherResult::PerMessage(vec)) => {
+                    for message in vec {
+                        match message {
+                            Ok(id) => message_ids.push(id),
+                            Err((err, failed_msg)) => {
+                                self.messages.push((topic, failed_msg));
+                                errors.push(err);
+                            }
+                        }
+                    }
+                }
+            }
+            futures_unordered = stream;
+        }
+
+        if let Some(first_error) = errors.pop() {
+            Err(if errors.is_empty() {
+                Error::Publisher(first_error)
+            } else {
+                Error::PublisherMultiple(first_error, errors)
+            })
+        } else {
+            Ok(message_ids)
+        }
+    }
+
+    /// Publishes just one message
+    ///
+    /// Panics if the builder contains anything but 1 message.
+    async fn publish_one(mut self) -> Result<P::MessageId, Error>
+    where
+        P: Publisher,
+    {
+        let (topic, message) = if let Some(v) = self.messages.pop() {
+            assert!(
+                self.messages.is_empty(),
+                "messages buffer must contain exactly 1 entry!"
+            );
+            v
+        } else {
+            panic!("messages buffer must contain exactly 1 entry!")
+        };
+        match self.hedwig.publisher.publish(topic, vec![message]).await {
+            PublisherResult::Success(mut ids) if ids.len() == 1 => Ok(ids.pop().unwrap()),
+            PublisherResult::OneError(err, _) => Err(Error::Publisher(err)),
+            PublisherResult::PerMessage(mut results) if results.len() == 1 => {
+                results.pop().unwrap().map_err(|(e, _)| Error::Publisher(e))
+            }
+            _ => {
+                panic!("Publisher should have returned 1 result only!");
+            }
+        }
     }
 }
 
-/// A message builder.
+/// A message builder
 #[derive(Clone, Debug, PartialEq)]
 pub struct Message<D, T> {
     /// Message identifier
@@ -593,7 +508,7 @@ pub struct Message<D, T> {
 }
 
 impl<D, T> Message<D, T> {
-    /// Construct a new message.
+    /// Construct a new message
     pub fn new(data_type: T, data_schema_version: Version, data: D) -> Self {
         Message {
             id: None,
@@ -607,7 +522,7 @@ impl<D, T> Message<D, T> {
         }
     }
 
-    /// Overwrite the header map associated with the message.
+    /// Overwrite the header map associated with the message
     ///
     /// This may be used to track the `request_id`, for example.
     pub fn headers(mut self, headers: Headers) -> Self {
@@ -615,7 +530,7 @@ impl<D, T> Message<D, T> {
         self
     }
 
-    /// Add a custom header to the message.
+    /// Add a custom header to the message
     ///
     /// This may be used to track the `request_id`, for example.
     pub fn header<H, V>(mut self, header: H, value: V) -> Self
@@ -633,7 +548,9 @@ impl<D, T> Message<D, T> {
         self
     }
 
-    /// Add custom id to the message. If not provided, a random UUID is generated.
+    /// Add custom id to the message
+    ///
+    /// If not called, a random UUID is generated for this message.
     pub fn id(mut self, id: Uuid) -> Self {
         self.id = Some(id);
         self
@@ -646,7 +563,7 @@ impl<D, T> Message<D, T> {
         format_version: Version,
     ) -> Result<ValidatedMessage, serde_json::Error>
     where
-        D: Serialize,
+        D: serde::Serialize,
     {
         Ok(ValidatedMessage {
             id: self.id.unwrap_or_else(Uuid::new_v4),
@@ -663,32 +580,34 @@ impl<D, T> Message<D, T> {
 }
 
 /// Additional metadata associated with a message
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct Metadata {
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+struct Metadata {
     /// The timestamp when message was created in the publishing service
     timestamp: u128,
 
     /// Name of the publishing service
     publisher: String,
 
-    /// Custom headers. This may be used to track request_id, for example.
+    /// Custom headers
+    ///
+    /// This may be used to track request_id, for example.
     headers: Headers,
 }
 
-/// A validated message.
+/// A validated message
 ///
 /// This data type is the schema or the json messages being sent over the wire.
-#[derive(Debug, Serialize)]
+#[derive(Debug, serde::Serialize)]
 pub struct ValidatedMessage {
-    /// An unique message identifier.
+    /// Unique message identifier
     id: Uuid,
-    /// The metadata associated with the message.
+    /// The metadata associated with the message
     metadata: Metadata,
-    /// URI of the schema validating this message.
+    /// URI of the schema validating this message
     ///
     /// E.g. `https://hedwig.domain.xyz/schemas#/schemas/user.created/1.0`
     schema: String,
-    /// Format of the message schema used.
+    /// Format of the message schema used
     format_version: Version,
     /// The message data
     data: serde_json::Value,
@@ -701,61 +620,25 @@ mod tests {
     use assert_matches::assert_matches;
     use strum_macros::IntoStaticStr;
 
-    #[cfg(feature = "mock")]
-    impl MockPublisher {
-        /// Verify that a message was published. This method asserts that the message you expected to be published, was
-        /// indeed published
-        pub fn assert_message_published<D, T>(&self, message: &Message<D, T>, headers: &Headers)
-        where
-            D: Serialize + Clone,
-            T: Copy + Into<&'static str>,
-        {
-            let published_messages = self.published_messages.borrow();
-            let (published, published_headers) = published_messages
-                .get(
-                    &message
-                        .id
-                        .expect("asserted messages should have specified uuid"),
-                )
-                .expect("message not found");
-            let data_type_str = message.data_type.into();
-            let encoded = message.clone().into_schema(
-                String::from("myapp"),
-                format!(
-                    "https://hedwig.standard.ai/schema#/schemas/{}/1.0",
-                    data_type_str
-                ),
-                VERSION_1_0,
-            );
-
-            let serialized = serde_json::to_string(&encoded.unwrap()).unwrap();
-            assert_eq!(published, &serialized);
-            assert_eq!(published_headers, headers);
-        }
-    }
-
     #[derive(Clone, Copy, Debug, IntoStaticStr, Hash, PartialEq, Eq)]
     enum MessageType {
         #[strum(serialize = "user.created")]
         UserCreated,
 
         #[strum(serialize = "invalid.schema")]
-        #[cfg(feature = "mock")]
         InvalidSchema,
 
         #[strum(serialize = "invalid.route")]
-        #[cfg(feature = "mock")]
         InvalidRoute,
     }
 
-    #[derive(Clone, Debug, Serialize, PartialEq)]
+    #[derive(Clone, Debug, serde::Serialize, PartialEq)]
     struct UserCreatedData {
         user_id: String,
     }
 
     const VERSION_1_0: Version = Version(MajorVersion(1), MinorVersion(0));
 
-    #[cfg(feature = "mock")]
     const SCHEMA: &str = r#"
 {
   "$id": "https://hedwig.standard.ai/schema",
@@ -792,7 +675,6 @@ mod tests {
   }
 }"#;
 
-    #[cfg(feature = "mock")]
     fn router(t: MessageType, v: MajorVersion) -> Option<&'static str> {
         match (t, v) {
             (MessageType::UserCreated, MajorVersion(1)) => Some("dev-user-created-v1"),
@@ -801,9 +683,14 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "mock")]
-    fn mock_hedwig() -> Hedwig<MessageType, MockPublisher> {
-        Hedwig::new(SCHEMA, "myapp", MockPublisher::default(), router).unwrap()
+    fn mock_hedwig() -> Hedwig<MessageType, publishers::MockPublisher> {
+        Hedwig::new(
+            SCHEMA,
+            "myapp",
+            publishers::MockPublisher::default(),
+            router,
+        )
+        .unwrap()
     }
 
     #[test]
@@ -854,9 +741,8 @@ mod tests {
         assert_eq!(id, message.id.unwrap());
     }
 
-    #[test]
-    #[cfg(feature = "mock")]
-    fn publish() {
+    #[tokio::test]
+    async fn publish() {
         let hedwig = mock_hedwig();
         let mut custom_headers = Headers::new();
         let request_id = Uuid::new_v4().to_string();
@@ -871,25 +757,25 @@ mod tests {
         .header("request_id", request_id.clone())
         .id(msg_id);
         custom_headers.insert("request_id".to_owned(), request_id);
-        let mut builder = hedwig.build_publish();
+        let mut builder = hedwig.build_batch();
         builder.message(message.clone()).unwrap();
-        builder.publish().unwrap();
+        builder.publish().await.unwrap();
         hedwig
             .publisher
-            .assert_message_published(&message, &custom_headers);
+            .assert_message_published("dev-user-created-v1", msg_id);
     }
 
-    #[test]
-    #[cfg(feature = "google")]
-    fn google_publisher_credentials_error() {
-        let r = GooglePublisher::new("path does not exist", "myproject".into());
-        assert_matches!(r.err(), Some(Error::CredentialFileOpen(_, _)));
+    #[tokio::test]
+    async fn publish_empty() {
+        let hedwig = mock_hedwig();
+        let mut builder = hedwig.build_batch();
+        builder.publish().await.unwrap();
     }
 
     #[test]
     fn validator_deserialization_error() {
         let r = Validator::new("bad json");
-        assert_matches!(r.err(), Some(Error::SchemaDeserialization(_)));
+        assert_matches!(r.err(), Some(Error::SchemaDeserialize(_)));
     }
 
     #[test]
@@ -907,14 +793,13 @@ mod tests {
 }"#;
 
         let r = Validator::new(BAD_SCHEMA);
-        assert_matches!(r.err(), Some(Error::SchemaCompilation(_)));
+        assert_matches!(r.err(), Some(Error::SchemaCompile(_)));
     }
 
     #[test]
-    #[cfg(feature = "mock")]
     fn message_serialization_error() {
         let hedwig = mock_hedwig();
-        #[derive(Serialize)]
+        #[derive(serde::Serialize)]
         struct BadUserCreatedData {
             user_ids: HashMap<Vec<i32>, String>,
         };
@@ -922,58 +807,43 @@ mod tests {
         user_ids.insert(vec![32, 64], "U_123".to_owned());
         let data = BadUserCreatedData { user_ids };
         let m = Message::new(MessageType::UserCreated, VERSION_1_0, data);
-        let mut builder = hedwig.build_publish();
-        assert_matches!(
-            builder.message(m).err(),
-            Some(PublishError::MessageSerialization(_))
-        );
+        let mut builder = hedwig.build_batch();
+        assert_matches!(builder.message(m).err(), Some(Error::MessageSerialize(_)));
     }
 
     #[test]
-    #[cfg(feature = "mock")]
     fn message_router_error() {
         let hedwig = mock_hedwig();
         let m = Message::new(MessageType::InvalidRoute, VERSION_1_0, ());
-        let mut builder = hedwig.build_publish();
-        assert_matches!(
-            builder.message(m).err(),
-            Some(PublishError::MessageRouting(_))
-        );
+        let mut builder = hedwig.build_batch();
+        assert_matches!(builder.message(m).err(), Some(Error::MessageRoute(_)));
     }
 
     #[test]
-    #[cfg(feature = "mock")]
     fn message_invalid_schema_error() {
         let hedwig = mock_hedwig();
         let m = Message::new(MessageType::InvalidSchema, VERSION_1_0, ());
-        let mut builder = hedwig.build_publish();
-        assert_matches!(
-            builder.message(m).err(),
-            Some(PublishError::SchemaUrlResolving(_))
-        );
+        let mut builder = hedwig.build_batch();
+        assert_matches!(builder.message(m).err(), Some(Error::SchemaUrlResolve(_)));
     }
 
     #[test]
-    #[cfg(feature = "mock")]
     fn message_data_validation_eror() {
         let hedwig = mock_hedwig();
-        #[derive(Serialize)]
+        #[derive(serde::Serialize)]
         struct BadUserCreatedData {
             user_ids: Vec<i32>,
         };
         let data = BadUserCreatedData { user_ids: vec![1] };
         let m = Message::new(MessageType::UserCreated, VERSION_1_0, data);
-        let mut builder = hedwig.build_publish();
-        assert_matches!(
-            builder.message(m).err(),
-            Some(PublishError::DataValidation(_))
-        );
+        let mut builder = hedwig.build_batch();
+        assert_matches!(builder.message(m).err(), Some(Error::DataValidation(_)));
     }
 
     #[test]
     fn errors_send_sync() {
         fn assert_error<T: std::error::Error + Send + Sync + 'static>() {}
         assert_error::<Error>();
-        assert_error::<PublishError>();
+        assert_error::<Error>();
     }
 }
