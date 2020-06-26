@@ -1,3 +1,10 @@
+#![deny(
+    missing_docs,
+    unused_import_braces,
+    unused_qualifications,
+    intra_doc_link_resolution_failure,
+    clippy::all
+)]
 //! A Hedwig library for Rust. Hedwig is a message bus that works with arbitrary pubsub services
 //! such as AWS SNS/SQS or Google Cloud Pubsub. Messages are validated using a JSON schema. The
 //! publisher and consumer are de-coupled and fan-out is supported out of the box.
@@ -184,9 +191,9 @@ pub trait Publisher {
     ///
     /// # Return value
     ///
-    /// Shall return [`PublisherResult::Success`](PublisherResult::Success) only if all of the messages are successfully
-    /// published. Otherwise `PublisherResult::OneError` or `PublisherResult::PerMessage` shall be
-    /// returned to indicate an error.
+    /// Shall return [`PublisherResult::Success`](PublisherResult::Success) only if all of the
+    /// messages are successfully published. Otherwise `PublisherResult::OneError` or
+    /// `PublisherResult::PerMessage` shall be returned to indicate an error.
     fn publish(&self, topic: &'static str, messages: Vec<ValidatedMessage>) -> Self::PublishFuture;
 }
 

@@ -180,7 +180,7 @@ fn serialize_validated_messages<S: serde::Serializer>(
             // Would be better with `S::to_string(&element)` if it was a thing. Then we could
             // properly propagate the error here... That said serde_json probably cannot fail.
             // Hopefully.
-            &serde_json::to_vec(&element).expect("could not serialize message contents")
+            &serde_json::to_vec(&element).expect("could not serialize message contents"),
         );
         serde::ser::SerializeSeq::serialize_element(
             &mut seq,
