@@ -94,7 +94,6 @@ use std::{
 };
 
 use futures::stream::StreamExt;
-use serde_json;
 use uuid::Uuid;
 use valico::json_schema::{SchemaError, Scope, ValidationState};
 
@@ -157,6 +156,8 @@ pub enum Error {
     ),
 }
 
+type AnyError = Box<dyn std::error::Error + Send + Sync>;
+
 /// The special result type for [`Publisher::publish`](trait.Publisher.html)
 #[derive(Debug)]
 pub enum PublisherResult<Id> {
@@ -165,14 +166,11 @@ pub enum PublisherResult<Id> {
     /// Contains a vector of published message IDs.
     Success(Vec<Id>),
     /// Publisher failed to publish any of the messages.
-    OneError(
-        Box<dyn std::error::Error + Send + Sync>,
-        Vec<ValidatedMessage>,
-    ),
+    OneError(AnyError, Vec<ValidatedMessage>),
     /// Publisher failed to publish some of the messages.
     ///
     /// The error type has a per-message granularity.
-    PerMessage(Vec<Result<Id, (Box<dyn std::error::Error + Send + Sync>, ValidatedMessage)>>),
+    PerMessage(Vec<Result<Id, (AnyError, ValidatedMessage)>>),
 }
 
 /// Interface for message publishers
