@@ -27,6 +27,8 @@ enum GooglePubsubError {
     ResponseBodyReceive(#[source] hyper::Error),
 }
 
+const JSON_METATYPE: &str = "application/json";
+
 /// A publisher that uses the Google Cloud Pub/Sub service as a message transport
 ///
 /// # Examples
@@ -108,7 +110,8 @@ where
                         http::header::AUTHORIZATION,
                         format!("Bearer {}", token.as_str()),
                     )
-                    .header(http::header::ACCEPT, "application/json")
+                    .header(http::header::ACCEPT, JSON_METATYPE)
+                    .header(http::header::CONTENT_TYPE, JSON_METATYPE)
                     .body(hyper::Body::from(data))
                     .map_err(GooglePubsubError::ConstructRequest)?;
                 let response = arc
