@@ -16,8 +16,6 @@ matrix:
       env: flags=
     - rust: stable
       env: flags=--features=google
-    - rust: stable
-      env: flags=--features=mock
 before_script:
 - |
   pip install 'travis-cargo<0.2' --user &&

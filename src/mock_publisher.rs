@@ -48,7 +48,7 @@ impl Publisher for MockPublisher {
     type PublishFuture = MockPublishFuture;
 
     fn publish(&self, topic: &'static str, messages: Vec<ValidatedMessage>) -> Self::PublishFuture {
-        let mut lock = self.0.lock().expect("lock");
+        let mut lock = self.0.lock().expect("this mutex cannot get poisoned");
         let num_messages = messages.len();
         let mut ids = Vec::with_capacity(num_messages);
         for message in messages {

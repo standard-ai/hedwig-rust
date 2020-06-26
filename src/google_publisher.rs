@@ -1,4 +1,3 @@
-use base64;
 use futures::{TryFutureExt, TryStreamExt};
 use std::{borrow::Cow, future::Future, pin::Pin, sync::Arc, task};
 use yup_oauth2::authenticator::Authenticator;
@@ -177,8 +176,12 @@ fn serialize_validated_messages<S: serde::Serializer>(
 ) -> Result<S::Ok, S::Error> {
     let mut seq = serializer.serialize_seq(Some(msgs.len()))?;
     for element in msgs {
-        // Would also be happy with `S::to_string(&element)` if it was a thing...?
-        let raw_message = base64::encode(&serde_json::to_string(&element).expect("welp"));
+        let raw_message = base64::encode(
+            // Would be better with `S::to_string(&element)` if it was a thing. Then we could
+            // properly propagate the error here... That said serde_json probably cannot fail.
+            // Hopefully.
+            &serde_json::to_vec(&element).expect("could not serialize message contents")
+        );
         serde::ser::SerializeSeq::serialize_element(
             &mut seq,
             &PubsubMessageSchema {
