@@ -622,7 +622,6 @@ pub struct ValidatedMessage {
 mod tests {
     use super::*;
 
-    use assert_matches::assert_matches;
     use strum_macros::IntoStaticStr;
 
     #[derive(Clone, Copy, Debug, IntoStaticStr, Hash, PartialEq, Eq)]
@@ -780,7 +779,7 @@ mod tests {
     #[test]
     fn validator_deserialization_error() {
         let r = Validator::new("bad json");
-        assert_matches!(r.err(), Some(Error::SchemaDeserialize(_)));
+        assert!(matches!(r.err(), Some(Error::SchemaDeserialize(_))));
     }
 
     #[test]
@@ -798,7 +797,7 @@ mod tests {
 }"#;
 
         let r = Validator::new(BAD_SCHEMA);
-        assert_matches!(r.err(), Some(Error::SchemaCompile(_)));
+        assert!(matches!(r.err(), Some(Error::SchemaCompile(_))));
     }
 
     #[test]
@@ -813,7 +812,7 @@ mod tests {
         let data = BadUserCreatedData { user_ids };
         let m = Message::new(MessageType::UserCreated, VERSION_1_0, data);
         let mut builder = hedwig.build_batch();
-        assert_matches!(builder.message(m).err(), Some(Error::MessageSerialize(_)));
+        assert!(matches!(builder.message(m).err(), Some(Error::MessageSerialize(_))));
     }
 
     #[test]
@@ -821,7 +820,7 @@ mod tests {
         let hedwig = mock_hedwig();
         let m = Message::new(MessageType::InvalidRoute, VERSION_1_0, ());
         let mut builder = hedwig.build_batch();
-        assert_matches!(builder.message(m).err(), Some(Error::MessageRoute(_)));
+        assert!(matches!(builder.message(m).err(), Some(Error::MessageRoute(_))));
     }
 
     #[test]
@@ -829,7 +828,7 @@ mod tests {
         let hedwig = mock_hedwig();
         let m = Message::new(MessageType::InvalidSchema, VERSION_1_0, ());
         let mut builder = hedwig.build_batch();
-        assert_matches!(builder.message(m).err(), Some(Error::SchemaUrlResolve(_)));
+        assert!(matches!(builder.message(m).err(), Some(Error::SchemaUrlResolve(_))));
     }
 
     #[test]
@@ -842,7 +841,7 @@ mod tests {
         let data = BadUserCreatedData { user_ids: vec![1] };
         let m = Message::new(MessageType::UserCreated, VERSION_1_0, data);
         let mut builder = hedwig.build_batch();
-        assert_matches!(builder.message(m).err(), Some(Error::DataValidation(_)));
+        assert!(matches!(builder.message(m).err(), Some(Error::DataValidation(_))));
     }
 
     #[test]
