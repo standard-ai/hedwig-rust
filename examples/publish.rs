@@ -1,4 +1,5 @@
 use std::env;
+use std::sync::Arc;
 
 use hedwig::{
     publishers::GooglePubSubPublisher, Hedwig, MajorVersion, Message, MinorVersion, Version,
@@ -70,11 +71,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error + 'static>> {
         .expect("$GOOGLE_APPLICATION_CREDENTIALS is not a valid service account key");
 
     let client = hyper::Client::builder().build(hyper_tls::HttpsConnector::new());
-    let authenticator = yup_oauth2::ServiceAccountAuthenticator::builder(secret)
+    let authenticator = Arc::new(yup_oauth2::ServiceAccountAuthenticator::builder(secret)
         .hyper_client(client.clone())
         .build()
         .await
-        .expect("could not create an authenticator");
+        .expect("could not create an authenticator"));
 
     let publisher = GooglePubSubPublisher::new(google_project, client, authenticator);
 
