@@ -90,7 +90,7 @@ where
         let client = self.client.clone();
         let authenticator = self.authenticator.clone();
         let uri = http::Uri::from_maybe_shared(format!(
-            "https://pubsub.googleapis.com/v1/projects/{0}/topics/{1}:publish",
+            "https://pubsub.googleapis.com/v1/projects/{0}/topics/hedwig-{1}:publish",
             self.google_cloud_project, topic
         ));
         GooglePubSubPublishFuture(Box::pin(async move {
