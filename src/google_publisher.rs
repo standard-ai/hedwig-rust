@@ -42,23 +42,23 @@ const JSON_METATYPE: &str = "application/json";
 ///         .await
 ///         .expect("$GOOGLE_APPLICATION_CREDENTIALS is not a valid service account key");
 ///     let client = hyper::Client::builder().build(hyper_tls::HttpsConnector::new());
-///     let authenticator = yup_oauth2::ServiceAccountAuthenticator::builder(secret)
-///         .hyper_client(client.clone())
-///         .build()
-///         .await
-///         .expect("could not create an authenticator");
+///     let authenticator = std::sync::Arc::new(
+///         yup_oauth2::ServiceAccountAuthenticator::builder(secret)
+///              .hyper_client(client.clone())
+///              .build()
+///              .await
+///              .expect("could not create an authenticator")
+///     );
 ///     Ok::<_, Box<dyn std::error::Error>>(
 ///         hedwig::publishers::GooglePubSubPublisher::new(google_project, client, authenticator)
 ///     )
 /// };
 /// ```
 #[allow(missing_debug_implementations)]
-pub struct GooglePubSubPublisher<C>(Arc<PublisherInner<C>>);
-
-struct PublisherInner<C> {
+pub struct GooglePubSubPublisher<C> {
     google_cloud_project: Cow<'static, str>,
     client: hyper::Client<C>,
-    authenticator: Authenticator<C>,
+    authenticator: Arc<Authenticator<C>>
 }
 
 impl<C> GooglePubSubPublisher<C> {
@@ -66,16 +66,16 @@ impl<C> GooglePubSubPublisher<C> {
     pub fn new<P>(
         project: P,
         client: hyper::Client<C>,
-        authenticator: Authenticator<C>,
+        authenticator: Arc<Authenticator<C>>,
     ) -> GooglePubSubPublisher<C>
     where
         P: Into<Cow<'static, str>>,
     {
-        GooglePubSubPublisher(Arc::new(PublisherInner {
+        GooglePubSubPublisher {
             google_cloud_project: project.into(),
             client,
             authenticator,
-        }))
+        }
     }
 }
 
@@ -87,20 +87,20 @@ where
     type PublishFuture = GooglePubSubPublishFuture;
 
     fn publish(&self, topic: &'static str, messages: Vec<ValidatedMessage>) -> Self::PublishFuture {
-        let arc = self.0.clone();
+        let client = self.client.clone();
+        let authenticator = self.authenticator.clone();
+        let uri = http::Uri::from_maybe_shared(format!(
+            "https://pubsub.googleapis.com/v1/projects/{0}/topics/{1}:publish",
+            self.google_cloud_project, topic
+        ));
         GooglePubSubPublishFuture(Box::pin(async move {
             let result = async {
+                let uri = uri.map_err(GooglePubsubError::ConstructRequestUri)?;
                 const AUTH_SCOPES: [&str; 1] = ["https://www.googleapis.com/auth/pubsub"];
-                let token = arc
-                    .authenticator
+                let token = authenticator
                     .token(&AUTH_SCOPES)
                     .await
                     .map_err(GooglePubsubError::GetAuthToken)?;
-                let uri = http::Uri::from_maybe_shared(format!(
-                    "https://pubsub.googleapis.com/v1/projects/{0}/topics/{1}:publish",
-                    arc.google_cloud_project, topic
-                ))
-                .map_err(GooglePubsubError::ConstructRequestUri)?;
                 let data = serde_json::to_vec(&PubsubPublishRequestSchema {
                     messages: &messages,
                 })
@@ -114,8 +114,7 @@ where
                     .header(http::header::CONTENT_TYPE, JSON_METATYPE)
                     .body(hyper::Body::from(data))
                     .map_err(GooglePubsubError::ConstructRequest)?;
-                let response = arc
-                    .client
+                let response = client
                     .request(request)
                     .map_err(GooglePubsubError::PostMessages)
                     .await?;
@@ -211,4 +210,13 @@ struct PubsubPublishFailResponseSchema {
 #[derive(serde::Deserialize)]
 struct PubsubPublishErrorSchema {
     message: String,
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn assert_send_sync() {
+        fn assert_markers<T: Send + Sync>() {}
+        assert_markers::<super::GooglePubSubPublisher<()>>();
+    }
 }
