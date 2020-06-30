@@ -1,6 +1,6 @@
 [package]
 name = "hedwig"
-version = "0.6.0"
+version = "1.0.0"
 authors = [
     "Aniruddha Maru <aniruddhamaru@gmail.com>",
     "Simonas Kazlauskas <hedwig@kazlauskas.me>"
@@ -48,3 +48,4 @@ tokio = { version = "^0.2.4", features = ["macros"] }
 
 [package.metadata.docs.rs]
 all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

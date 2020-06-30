@@ -105,6 +105,7 @@ use uuid::Uuid;
 use valico::json_schema::{SchemaError, Scope, ValidationState};
 
 #[cfg(feature = "google")]
+#[cfg_attr(docsrs, doc(cfg(feature = "google")))]
 mod google_publisher;
 mod mock_publisher;
 mod null_publisher;
@@ -112,6 +113,7 @@ mod null_publisher;
 /// Implementations of the Publisher trait
 pub mod publishers {
     #[cfg(feature = "google")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "google")))]
     pub use super::google_publisher::GooglePubSubPublisher;
     pub use super::mock_publisher::MockPublisher;
     pub use super::null_publisher::NullPublisher;
