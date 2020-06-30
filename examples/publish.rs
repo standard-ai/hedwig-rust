@@ -69,7 +69,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + 'static>> {
         .await
         .expect("$GOOGLE_APPLICATION_CREDENTIALS is not a valid service account key");
 
-    let client = hyper::Client::builder().build(hyper_openssl::HttpsConnector::new()?);
+    let client = hyper::Client::builder().build(hyper_tls::HttpsConnector::new());
     let authenticator = yup_oauth2::ServiceAccountAuthenticator::builder(secret)
         .hyper_client(client.clone())
         .build()

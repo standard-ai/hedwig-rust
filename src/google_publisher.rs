@@ -41,7 +41,7 @@ const JSON_METATYPE: &str = "application/json";
 ///     let secret = yup_oauth2::read_service_account_key(google_credentials)
 ///         .await
 ///         .expect("$GOOGLE_APPLICATION_CREDENTIALS is not a valid service account key");
-///     let client = hyper::Client::builder().build(hyper_openssl::HttpsConnector::new()?);
+///     let client = hyper::Client::builder().build(hyper_tls::HttpsConnector::new());
 ///     let authenticator = yup_oauth2::ServiceAccountAuthenticator::builder(secret)
 ///         .hyper_client(client.clone())
 ///         .build()
