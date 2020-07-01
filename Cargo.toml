@@ -1,6 +1,6 @@
 [package]
 name = "hedwig"
-version = "1.0.0"
+version = "1.0.1"
 authors = [
     "Aniruddha Maru <aniruddhamaru@gmail.com>",
     "Simonas Kazlauskas <hedwig@kazlauskas.me>"
