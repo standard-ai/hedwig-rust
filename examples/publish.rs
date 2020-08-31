@@ -1,29 +1,37 @@
-use std::env;
-use std::sync::Arc;
+use futures_util::stream::StreamExt;
+use hedwig::{publishers::GooglePubSubPublisher, Headers, Message, Publisher};
+use std::{env, sync::Arc, time::SystemTime};
 
-use hedwig::{
-    publishers::GooglePubSubPublisher, Hedwig, MajorVersion, Message, MinorVersion, Version,
-};
-use serde::Serialize;
-use strum_macros::IntoStaticStr;
-
-#[derive(Clone, Copy, Debug, IntoStaticStr, Hash, PartialEq, Eq)]
-pub enum MessageType {
-    #[strum(serialize = "user.created")]
-    UserCreated,
-}
-
-#[derive(Serialize)]
-struct UserCreatedData {
+#[derive(serde::Serialize)]
+struct UserCreatedMessage {
+    #[serde(skip)]
+    uuid: uuid::Uuid,
     user_id: String,
 }
 
-const VERSION_1_0: Version = Version(MajorVersion(1), MinorVersion(0));
+impl<'a> Message for &'a UserCreatedMessage {
+    type Error = hedwig::validators::JsonSchemaValidatorError;
+    type Validator = hedwig::validators::JsonSchemaValidator;
+    fn topic(&self) -> &'static str {
+        "user.created"
+    }
+    fn encode(self, validator: &Self::Validator) -> Result<hedwig::ValidatedMessage, Self::Error> {
+        Ok(validator
+            .validate(
+                self.uuid,
+                SystemTime::now(),
+                "https://hedwig.corp/schema#/schemas/user.created/1.0",
+                Headers::new(),
+                self,
+            )
+            .unwrap())
+    }
+}
 
 const PUBLISHER: &str = "myapp";
 
 const SCHEMA: &str = r#"{
-  "$id": "https://hedwig.standard.ai/schema",
+  "$id": "https://hedwig.corp/schema",
   "$schema": "https://json-schema.org/draft-04/schema#",
   "description": "Example Schema",
   "schemas": {
@@ -39,7 +47,7 @@ const SCHEMA: &str = r#"{
               ],
               "properties": {
                   "user_id": {
-                      "$ref": "https://hedwig.standard.ai/schema#/definitions/UserId/1.0"
+                      "$ref": "https://hedwig.corp/schema#/definitions/UserId/1.0"
                   }
               }
           }
@@ -54,13 +62,6 @@ const SCHEMA: &str = r#"{
   }
 }"#;
 
-fn router(t: MessageType, v: MajorVersion) -> Option<&'static str> {
-    match (t, v) {
-        (MessageType::UserCreated, MajorVersion(1)) => Some("dev-user-created-v1"),
-        _ => None,
-    }
-}
-
 async fn run() -> Result<(), Box<dyn std::error::Error + 'static>> {
     let google_project =
         env::var("GOOGLE_CLOUD_PROJECT").expect("env var GOOGLE_CLOUD_PROJECT is required");
@@ -71,29 +72,31 @@ async fn run() -> Result<(), Box<dyn std::error::Error + 'static>> {
         .expect("$GOOGLE_APPLICATION_CREDENTIALS is not a valid service account key");
 
     let client = hyper::Client::builder().build(hyper_tls::HttpsConnector::new());
-    let authenticator = Arc::new(yup_oauth2::ServiceAccountAuthenticator::builder(secret)
-        .hyper_client(client.clone())
-        .build()
-        .await
-        .expect("could not create an authenticator"));
+    let authenticator = Arc::new(
+        yup_oauth2::ServiceAccountAuthenticator::builder(secret)
+            .hyper_client(client.clone())
+            .build()
+            .await
+            .expect("could not create an authenticator"),
+    );
 
-    let publisher = GooglePubSubPublisher::new(google_project, client, authenticator);
-
-    let hedwig = Hedwig::new(SCHEMA, PUBLISHER, publisher, router)?;
-
-    let data = UserCreatedData {
+    let publisher = GooglePubSubPublisher::new(
+        PUBLISHER.into(),
+        google_project.into(),
+        client,
+        authenticator,
+    );
+    let validator = hedwig::validators::JsonSchemaValidator::new(SCHEMA).unwrap();
+    let message = UserCreatedMessage {
+        uuid: uuid::Uuid::new_v4(),
         user_id: "U_123".into(),
     };
-
-    let message_id = uuid::Uuid::new_v4();
-    let mut builder = hedwig.build_batch();
-    builder.message(
-        Message::new(MessageType::UserCreated, VERSION_1_0, data)
-            .id(message_id)
-            .header("request_id", uuid::Uuid::new_v4().to_string()),
-    )?;
-
-    println!("Published messages {:?}", builder.publish().await?);
+    let topic = Message::topic(&&message);
+    let validated = message.encode(&validator).unwrap();
+    let mut publish = publisher.publish(topic, [validated].iter());
+    while let Some(r) = publish.next().await {
+        println!("publish result: {:?}", r?);
+    }
 
     Ok(())
 }

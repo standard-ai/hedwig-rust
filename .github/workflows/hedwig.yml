@@ -41,6 +41,10 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: doc
+          args: --all-features --manifest-path=Cargo.toml
+        env:
+          RUSTDOCFLAGS: --cfg docsrs
+        if: ${{ matrix.rust_toolchain == 'nightly' }}
       - name: Build without features
         uses: actions-rs/cargo@v1
         with:

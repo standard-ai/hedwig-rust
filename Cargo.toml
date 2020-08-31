@@ -15,36 +15,39 @@ keywords = ["pubsub", "messagebus", "microservices"]
 categories = ["asynchronous", "web-programming"]
 
 [badges]
-travis-ci = { repository = "standard-ai/hedwig-rust" }
 maintenance = { status = "actively-developed" }
 
 [features]
 default = []
-google = ["base64", "yup-oauth2", "hyper", "http"]
+# Publishers
+google = ["base64", "yup-oauth2", "hyper", "http", "serde_json", "serde", "serde/derive", "uuid/serde"]
+# Validators
+json-schema = ["valico", "serde_json", "serde"]
+protobuf = ["prost"]
 
 [[example]]
 name = "publish"
-required-features = ["google"]
+required-features = ["google", "json-schema"]
 
 [dependencies]
-futures = "0.3"
-serde_json = "^1"
-serde = { version = "^1.0", features = ["derive"] }
-thiserror = "1"
-url = "2"
-uuid = { version = "^0.8", features = ["serde", "v4"] }
-valico = { version = "^3.2" }
+futures-util = { version = "0.3", features = ["std"], default-features = false }
+thiserror = { version = "1", default-features = false }
+url = { version = "2", default-features = false }
+uuid = { version = "^0.8", features = ["v4"], default-features = false }
 
-base64 = { version = "^0.12", optional = true }
-http = { version = "^0.2", optional = true }
-hyper = { version = "^0.13.1", optional = true }
-yup-oauth2 = { version = "4", optional = true }
+serde = { version = "^1.0", optional = true, default-features = false }
+serde_json = { version = "^1", features = ["std"], optional = true, default-features = false }
+valico = { version = "^3.2", optional = true, default-features = false }
+base64 = { version = "^0.12", optional = true, default-features = false }
+http = { version = "^0.2", optional = true, default-features = false }
+hyper = { version = "^0.13.1", optional = true, default-features = false }
+yup-oauth2 = { version = "4", optional = true, default-features = false }
+prost = { version = "0.6", optional = true, default-features = false }
 
 [dev-dependencies]
 hyper-tls = "0.4.0"
-strum = "^0.18"
-strum_macros = "^0.18"
 tokio = { version = "^0.2.4", features = ["macros"] }
+serde = { version = "1", features = ["derive"] }
 
 [package.metadata.docs.rs]
 all-features = true
