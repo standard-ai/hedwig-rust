@@ -7,18 +7,14 @@
 ## What is it?
 
 Hedwig is a inter-service communication bus that works on AWS and GCP, while keeping things pretty
-simple and straight forward. It uses [json schema](https://json-schema.org/) [draft
-v4](https://json-schema.org/specification-links.html#draft-4) for schema validation so all incoming
-and outgoing messages are validated against pre-defined schema.
+simple and straight forward.
+
+It allows validation of the message payloads before they are sent, helping to catch cross-component
+incompatibilities early.
 
 Hedwig allows separation of concerns between consumers and publishers so your services are loosely
-coupled, and the contract is enforced by the schema validation. Hedwig may also be used to build
-asynchronous APIs.
-
-Support exists for [Python](https://github.com/Automatic/hedwig-python) and
-[Golang](https://github.com/Automatic/hedwig-go).
-
-For intra-service messaging, see [Taskhawk](https://github.com/Automatic/taskhawk-python).
+coupled, and the contract is enforced by the message payload validation. Hedwig may also be used to
+build asynchronous APIs.
 
 ## Quick Start
 
@@ -28,14 +24,15 @@ Add to Cargo.toml:
 
 ```toml
 [dependencies]
-hedwig = "1"
+hedwig = "2"
 ```
 
-To use the Google Publisher, enable the `google` feature as well:
+You may also need to enable additional features in order to use the optional publishers or
+validators, like this:
 
 ```toml
 [dependencies]
-hedwig = { version = "1", features = ["google"] }
+hedwig = { version = "2", features = ["google"] }
 ```
 
 ### Usage
