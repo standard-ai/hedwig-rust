@@ -122,6 +122,8 @@ impl GooglePubSubError {
     pub fn is_transient(&self) -> bool {
         use http::StatusCode;
         use GooglePubSubError::*;
+        const GOOGLE_STATUS_CODE_CANCELLED: u16 = 499;
+
         match self {
             // These will typically encode I/O errors, although they might encode non-I/O stuff
             // too.
@@ -130,11 +132,19 @@ impl GooglePubSubError {
             GetAuthToken(err) if matches!(**err, yup_oauth2::Error::HttpError(_)) => true,
             GetAuthToken(_) => false,
 
-            // Only some 500-series HTTP responses are plausibly retry-able.
+            // Some HTTP response codes are plausibly retry-able.
+            //
+            // References:
+            //
+            // https://github.com/googleapis/google-cloud-go/blob/9e64b018255bd8d9b31d60e8f396966251de946b/pubsub/apiv1/publisher_client.go#L86
+            // https://cloud.google.com/apis/design/errors#handling_errors
+            // https://cloud.google.com/pubsub/docs/reference/error-codes
             ResponseStatus(_, StatusCode::BAD_GATEWAY) => true,
             ResponseStatus(_, StatusCode::SERVICE_UNAVAILABLE) => true,
             ResponseStatus(_, StatusCode::GATEWAY_TIMEOUT) => true,
-            ResponseStatus(_, _) => false,
+            ResponseStatus(_, StatusCode::TOO_MANY_REQUESTS) => true,
+            ResponseStatus(_, StatusCode::CONFLICT) => true,
+            ResponseStatus(_, code) => code.as_u16() == GOOGLE_STATUS_CODE_CANCELLED,
 
             // Unlikely to ever succeed.
             ConstructRequestUri(..) => false,
