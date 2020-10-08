@@ -286,11 +286,14 @@ impl PublishBatch {
         P: Publisher,
         P::PublishStream: Unpin,
     {
-        self.messages.into_iter().map(|(topic, msgs)| {
-            publisher
-                .publish(topic, msgs.iter())
-                .zip(stream::iter(msgs.into_iter()))
-                .map(move |(r, m)| (r, topic, m))
-        }).collect::<stream::SelectAll<_>>()
+        self.messages
+            .into_iter()
+            .map(|(topic, msgs)| {
+                publisher
+                    .publish(topic, msgs.iter())
+                    .zip(stream::iter(msgs.into_iter()))
+                    .map(move |(r, m)| (r, topic, m))
+            })
+            .collect::<stream::SelectAll<_>>()
     }
 }

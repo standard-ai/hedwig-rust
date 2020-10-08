@@ -88,7 +88,7 @@ impl JsonSchemaValidator {
         let msg_schema = self
             .scope
             .resolve(&msg_schema_url)
-            .ok_or_else(|| JsonSchemaValidatorError::SchemaUrlResolve(msg_schema_url))?;
+            .ok_or(JsonSchemaValidatorError::SchemaUrlResolve(msg_schema_url))?;
         let value = serde_json::to_value(data).map_err(JsonSchemaValidatorError::SerializeData)?;
         let validation_state = msg_schema.validate(&value);
         if !validation_state.is_strictly_valid() {

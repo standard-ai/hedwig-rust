@@ -57,7 +57,7 @@ pub enum GooglePubSubError {
     MessageHeaderKeysTooLarge,
     /// Message contains a header with {0} key which is reserved.
     #[error("message contains a header with {0} key which is reserved")]
-    MessageHeaderKeysReserved(Box<str>),
+    MessageHeaderKeysReserved(Arc<str>),
     /// Message contains a header value that's too large.
     #[error("message contains a header value that's too large")]
     MessageHeaderValuesTooLarge,
@@ -120,22 +120,33 @@ impl GooglePubSubError {
     /// };
     /// ```
     pub fn is_transient(&self) -> bool {
+        use http::StatusCode;
         use GooglePubSubError::*;
         match self {
-            GetAuthToken(..)
-            | PostMessages(..)
-            | ResponseStatus(..)
-            | ResponseParse(..)
-            | ResponseBodyReceive(..) => true,
-            ConstructRequestUri(..)
-            | ConstructRequest(..)
-            | MessageTooManyHeaders
-            | MessageHeaderKeysTooLarge
-            | MessageHeaderKeysReserved(..)
-            | MessageHeaderValuesTooLarge
-            | MessageDataTooLong
-            | MessageTimestampTooOld(..)
-            | SerializeMessageData(..) => false,
+            // These will typically encode I/O errors, although they might encode non-I/O stuff
+            // too.
+            PostMessages(..) => true,
+            ResponseBodyReceive(..) => true,
+            GetAuthToken(err) if matches!(**err, yup_oauth2::Error::HttpError(_)) => true,
+            GetAuthToken(_) => false,
+
+            // Only some 500-series HTTP responses are plausibly retry-able.
+            ResponseStatus(_, StatusCode::BAD_GATEWAY) => true,
+            ResponseStatus(_, StatusCode::SERVICE_UNAVAILABLE) => true,
+            ResponseStatus(_, StatusCode::GATEWAY_TIMEOUT) => true,
+            ResponseStatus(_, _) => false,
+
+            // Unlikely to ever succeed.
+            ConstructRequestUri(..) => false,
+            ResponseParse(..) => false,
+            ConstructRequest(..) => false,
+            MessageTooManyHeaders => false,
+            MessageHeaderKeysTooLarge => false,
+            MessageHeaderKeysReserved(..) => false,
+            MessageHeaderValuesTooLarge => false,
+            MessageDataTooLong => false,
+            MessageTimestampTooOld(..) => false,
+            SerializeMessageData(..) => false,
         }
     }
 }
@@ -390,9 +401,7 @@ impl<'a, I> GoogleMessageSegmenter<'a, I> {
                 return Err(GooglePubSubError::MessageHeaderKeysTooLarge);
             }
             if key.starts_with("hedwig_") {
-                return Err(GooglePubSubError::MessageHeaderKeysReserved(
-                    key.clone().into(),
-                ));
+                return Err(GooglePubSubError::MessageHeaderKeysReserved(key[..].into()));
             }
             if value.len() >= API_MSG_ATTRIBUTE_VAL_SIZE_LIMIT {
                 return Err(GooglePubSubError::MessageHeaderValuesTooLarge);
@@ -702,7 +711,7 @@ mod tests {
             uuid: Uuid::new_v4(),
             schema: "https://hedwig.corp/schema#/schemas/user.created/1.0",
             user_id: String::from("hello"),
-            headers: headers,
+            headers,
             time: SystemTime::now(),
         }
         .encode(&validator)
@@ -752,7 +761,7 @@ mod tests {
     #[test]
     fn valid_very_long_header_name() {
         let name = String::from_utf8(vec![b'a'; 255]).unwrap();
-        assert!(matches!(test_header_name(name.into()), Some(Ok(_))));
+        assert!(matches!(test_header_name(name), Some(Ok(_))));
     }
 
     #[cfg(feature = "json-schema")]
@@ -760,7 +769,7 @@ mod tests {
     fn invalid_overlong_header_name() {
         let name = String::from_utf8(vec![b'a'; 256]).unwrap();
         assert!(matches!(
-            test_header_name(name.into()),
+            test_header_name(name),
             Some(Err(GooglePubSubError::MessageHeaderKeysTooLarge))
         ));
     }
@@ -769,7 +778,7 @@ mod tests {
     #[test]
     fn valid_very_long_header_value() {
         let name = String::from_utf8(vec![b'a'; 1023]).unwrap();
-        assert!(matches!(test_header_value(name.into()), Some(Ok(_))));
+        assert!(matches!(test_header_value(name), Some(Ok(_))));
     }
 
     #[cfg(feature = "json-schema")]
@@ -777,7 +786,7 @@ mod tests {
     fn invalid_overlong_header_value() {
         let name = String::from_utf8(vec![b'a'; 1024]).unwrap();
         assert!(matches!(
-            test_header_value(name.into()),
+            test_header_value(name),
             Some(Err(GooglePubSubError::MessageHeaderValuesTooLarge))
         ));
     }
