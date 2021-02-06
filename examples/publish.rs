@@ -102,8 +102,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + 'static>> {
 }
 
 fn main() {
-    let mut rt = tokio::runtime::Builder::new()
-        .basic_scheduler()
+    let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("runtime builds");
