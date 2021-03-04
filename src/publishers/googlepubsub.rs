@@ -2,7 +2,7 @@ use futures_util::stream::{Stream, StreamExt, TryStreamExt};
 use std::{borrow::Cow, pin::Pin, sync::Arc, task, time::SystemTime};
 use yup_oauth2::authenticator::Authenticator;
 
-use crate::ValidatedMessage;
+use crate::{Topic, ValidatedMessage};
 
 const AUTH_SCOPES: [&str; 1] = ["https://www.googleapis.com/auth/pubsub"];
 const JSON_METATYPE: &str = "application/json";
@@ -282,7 +282,7 @@ where
     type MessageError = GooglePubSubError;
     type PublishStream = GooglePubSubPublishStream;
 
-    fn publish<'a, I>(&self, topic: &'static str, messages: I) -> Self::PublishStream
+    fn publish<'a, I>(&self, topic: Topic, messages: I) -> Self::PublishStream
     where
         I: Iterator<Item = &'a ValidatedMessage>,
     {

@@ -1,8 +1,8 @@
-use crate::{Publisher, ValidatedMessage};
+use crate::{Publisher, Topic, ValidatedMessage};
 
 use std::{
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, MutexGuard},
     task,
 };
 
@@ -21,7 +21,7 @@ use uuid::Uuid;
 /// let publisher_view = publisher.clone();
 /// ```
 #[derive(Debug, Default, Clone)]
-pub struct MockPublisher(Arc<Mutex<Vec<(&'static str, ValidatedMessage)>>>);
+pub struct MockPublisher(Arc<Mutex<Vec<(Topic, ValidatedMessage)>>>);
 
 impl MockPublisher {
     /// Create a new mock publisher.
@@ -45,7 +45,7 @@ impl MockPublisher {
     /// be published, was indeed published
     ///
     /// Panics if the message was not published.
-    pub fn assert_message_published(&self, topic: &'static str, uuid: &Uuid) {
+    pub fn assert_message_published(&self, topic: Topic, uuid: &Uuid) {
         {
             let lock = self.0.lock().expect("this mutex cannot get poisoned");
             for (mt, msg) in &lock[..] {
@@ -59,6 +59,22 @@ impl MockPublisher {
             uuid, topic
         );
     }
+
+    /// Get a view over the messages that have been published to this publisher
+    pub fn messages(&self) -> Messages {
+        Messages(self.0.lock().expect("lock poisoned!"))
+    }
+}
+
+/// A view over the messages in a `MockPublisher`, returned by
+/// [`messages`](MockPublisher::messages)
+pub struct Messages<'a>(MutexGuard<'a, Vec<(Topic, ValidatedMessage)>>);
+
+impl<'a> Messages<'a> {
+    /// Get an iterator over the messages in the `MockPublisher`
+    pub fn iter(&self) -> impl Iterator<Item = &(Topic, ValidatedMessage)> {
+        self.0.iter()
+    }
 }
 
 impl Publisher for MockPublisher {
@@ -66,7 +82,7 @@ impl Publisher for MockPublisher {
     type MessageError = std::convert::Infallible;
     type PublishStream = MockPublishStream;
 
-    fn publish<'a, I>(&self, topic: &'static str, messages: I) -> Self::PublishStream
+    fn publish<'a, I>(&self, topic: Topic, messages: I) -> Self::PublishStream
     where
         I: Iterator<Item = &'a ValidatedMessage> + ExactSizeIterator,
     {
