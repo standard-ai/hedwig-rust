@@ -58,7 +58,7 @@
 //! impl<'a> hedwig::Message for &'a UserCreatedMessage {
 //!     type Error = hedwig::validators::JsonSchemaValidatorError;
 //!     type Validator = hedwig::validators::JsonSchemaValidator;
-//!     fn topic(&self) -> &'static str { "user.created" }
+//!     fn topic(&self) -> hedwig::Topic { "user.created" }
 //!     fn encode(self, validator: &Self::Validator)
 //!     -> Result<hedwig::ValidatedMessage, Self::Error> {
 //!         validator.validate(
@@ -99,20 +99,37 @@
     broken_intra_doc_links,
     clippy::all,
     unsafe_code,
-    unreachable_pub,
-    unused
+    unreachable_pub
 )]
+#![allow(clippy::unknown_clippy_lints)]
+#![cfg_attr(not(test), deny(unused))]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-use std::{collections::BTreeMap, time::SystemTime};
+use std::{
+    collections::BTreeMap,
+    pin::Pin,
+    task::{Context, Poll},
+    time::SystemTime,
+};
 
-use futures_util::stream::{self, Stream, StreamExt};
+use futures_util::{
+    ready,
+    stream::{self, Stream},
+};
+use pin_project::pin_project;
 use uuid::Uuid;
 
 pub mod publishers;
 #[cfg(test)]
 mod tests;
 pub mod validators;
+
+#[cfg(feature = "sink")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sink")))]
+pub mod sink;
+
+/// A message queue topic name to which messages can be published
+pub type Topic = &'static str;
 
 /// All errors that may be returned when operating top level APIs.
 #[derive(Debug, thiserror::Error)]
@@ -141,7 +158,7 @@ pub trait Publisher {
     /// Publish a batch of messages.
     ///
     /// The output stream shall return a result for each message in `messages` slice in order.
-    fn publish<'a, I>(&self, topic: &'static str, messages: I) -> Self::PublishStream
+    fn publish<'a, I>(&self, topic: Topic, messages: I) -> Self::PublishStream
     where
         I: Iterator<Item = &'a ValidatedMessage> + DoubleEndedIterator + ExactSizeIterator;
 }
@@ -157,7 +174,7 @@ pub trait Message {
     type Validator;
 
     /// Topic into which this message shall be published.
-    fn topic(&self) -> &'static str;
+    fn topic(&self) -> Topic;
 
     /// Encode the message payload.
     fn encode(self, validator: &Self::Validator) -> Result<ValidatedMessage, Self::Error>;
@@ -170,6 +187,8 @@ pub type Headers = BTreeMap<String, String>;
 ///
 /// The only way to construct this is via a validator.
 #[derive(Debug, Clone)]
+// derive Eq only in tests so that users can't foot-shoot an expensive == over data
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct ValidatedMessage {
     /// Unique message identifier.
     id: Uuid,
@@ -221,7 +240,7 @@ impl ValidatedMessage {
 /// A convenience builder for publishing in batches.
 #[derive(Default, Debug)]
 pub struct PublishBatch {
-    messages: BTreeMap<&'static str, Vec<ValidatedMessage>>,
+    messages: BTreeMap<Topic, Vec<ValidatedMessage>>,
 }
 
 impl PublishBatch {
@@ -241,7 +260,7 @@ impl PublishBatch {
     }
 
     /// Add an already validated message to be published in this batch.
-    pub fn push(&mut self, topic: &'static str, validated: ValidatedMessage) -> &mut Self {
+    pub fn push(&mut self, topic: Topic, validated: ValidatedMessage) -> &mut Self {
         self.messages.entry(topic).or_default().push(validated);
         self
     }
@@ -272,28 +291,83 @@ impl PublishBatch {
     /// Publisher-specific error types may have methods to make a decision easier.
     ///
     /// [`GooglePubSubPublisher`]: publishers::GooglePubSubPublisher
-    pub fn publish<P>(
-        self,
-        publisher: &P,
-    ) -> impl Stream<
-        Item = (
-            Result<P::MessageId, P::MessageError>,
-            &'static str,
-            ValidatedMessage,
-        ),
-    >
+    pub fn publish<P>(self, publisher: &P) -> PublishBatchStream<P::PublishStream>
     where
         P: Publisher,
         P::PublishStream: Unpin,
     {
-        self.messages
-            .into_iter()
-            .map(|(topic, msgs)| {
-                publisher
-                    .publish(topic, msgs.iter())
-                    .zip(stream::iter(msgs.into_iter()))
-                    .map(move |(r, m)| (r, topic, m))
-            })
-            .collect::<stream::SelectAll<_>>()
+        PublishBatchStream(
+            self.messages
+                .into_iter()
+                .map(|(topic, msgs)| TopicPublishStream::new(topic, msgs, publisher))
+                .collect::<stream::SelectAll<_>>(),
+        )
+    }
+}
+
+/// The stream returned by the method [`PublishBatch::publish`](PublishBatch::publish)
+// This stream and TopicPublishStream are made explicit types instead of combinators like
+// map/zip/etc so that callers can refer to a concrete return type instead of `impl Stream`
+#[pin_project]
+#[derive(Debug)]
+pub struct PublishBatchStream<P>(#[pin] stream::SelectAll<TopicPublishStream<P>>);
+
+impl<P> Stream for PublishBatchStream<P>
+where
+    P: Stream + Unpin,
+{
+    type Item = (P::Item, Topic, ValidatedMessage);
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
+        self.project().0.poll_next(cx)
+    }
+}
+
+#[pin_project]
+#[derive(Debug)]
+struct TopicPublishStream<P> {
+    topic: Topic,
+    messages: std::vec::IntoIter<ValidatedMessage>,
+
+    #[pin]
+    publish_stream: P,
+}
+
+impl<P> TopicPublishStream<P> {
+    fn new<Pub>(topic: Topic, messages: Vec<ValidatedMessage>, publisher: &Pub) -> Self
+    where
+        Pub: Publisher<PublishStream = P>,
+        P: Stream<Item = Result<Pub::MessageId, Pub::MessageError>>,
+    {
+        let publish_stream = publisher.publish(topic, messages.iter());
+        Self {
+            topic,
+            messages: messages.into_iter(),
+            publish_stream,
+        }
+    }
+}
+
+impl<P> Stream for TopicPublishStream<P>
+where
+    P: Stream,
+{
+    type Item = (P::Item, Topic, ValidatedMessage);
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
+        let this = self.project();
+
+        // `map` has lifetime constraints that aren't nice here
+        #[allow(clippy::manual_map)]
+        Poll::Ready(match ready!(this.publish_stream.poll_next(cx)) {
+            None => None,
+            Some(stream_item) => Some((
+                stream_item,
+                this.topic,
+                this.messages
+                    .next()
+                    .expect("should be as many messages as publishes"),
+            )),
+        })
     }
 }
