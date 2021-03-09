@@ -1,6 +1,9 @@
 //! Provides a `Sink` interface for publishing to hedwig.
 
-use crate::{Message, PublishBatch, Publisher, Topic, ValidatedMessage};
+use crate::{
+    publish::{EncodableMessage, PublishBatch, Publisher},
+    Topic, ValidatedMessage,
+};
 use either::Either;
 use futures_util::{ready, sink::Sink, stream::Stream};
 use pin_project::pin_project;
@@ -16,7 +19,7 @@ pub fn validator_sink<M, S>(
     destination_sink: S,
 ) -> ValidatorSink<M, M::Validator, S>
 where
-    M: Message,
+    M: EncodableMessage,
     S: Sink<(Topic, ValidatedMessage)>,
 {
     ValidatorSink {
@@ -67,7 +70,7 @@ pub struct ValidatorSink<M, V, S> {
 
 impl<M, S> Sink<M> for ValidatorSink<M, M::Validator, S>
 where
-    M: Message,
+    M: EncodableMessage,
     S: Sink<(Topic, ValidatedMessage)>,
 {
     type Error = Either<M::Error, S::Error>;
@@ -136,7 +139,7 @@ pub struct PublisherSink<P, S> {
 #[derive(Debug)]
 enum FlushState<S> {
     NotFlushing,
-    Flushing(#[pin] crate::PublishBatchStream<S>),
+    Flushing(#[pin] crate::publish::PublishBatchStream<S>),
 }
 
 impl<P> Sink<(Topic, ValidatedMessage)> for PublisherSink<P, P::PublishStream>
@@ -264,7 +267,7 @@ mod test {
     #[derive(Debug, Eq, PartialEq)]
     struct TestMessage(&'static str);
 
-    impl Message for TestMessage {
+    impl EncodableMessage for TestMessage {
         type Error = std::convert::Infallible;
         type Validator = TestValidator;
 
@@ -389,7 +392,7 @@ mod test {
 
     mod publisher_sink {
         use super::*;
-        use crate::publishers::MockPublisher;
+        use crate::publish::publishers::MockPublisher;
         use futures_util::pin_mut;
         use std::{cell::RefCell, rc::Rc};
 

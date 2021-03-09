@@ -1,5 +1,8 @@
 use futures_util::stream::StreamExt;
-use hedwig::{publishers::GooglePubSubPublisher, Headers, Message, Publisher};
+use hedwig::{
+    publish::{EncodableMessage, GooglePubSubPublisher, Publisher},
+    Headers,
+};
 use std::{env, sync::Arc, time::SystemTime};
 
 #[derive(serde::Serialize)]
@@ -9,7 +12,7 @@ struct UserCreatedMessage {
     user_id: String,
 }
 
-impl<'a> Message for &'a UserCreatedMessage {
+impl<'a> EncodableMessage for &'a UserCreatedMessage {
     type Error = hedwig::validators::JsonSchemaValidatorError;
     type Validator = hedwig::validators::JsonSchemaValidator;
     fn topic(&self) -> &'static str {
@@ -91,7 +94,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + 'static>> {
         uuid: uuid::Uuid::new_v4(),
         user_id: "U_123".into(),
     };
-    let topic = Message::topic(&&message);
+    let topic = EncodableMessage::topic(&&message);
     let validated = message.encode(&validator).unwrap();
     let mut publish = publisher.publish(topic, [validated].iter());
     while let Some(r) = publish.next().await {

@@ -110,7 +110,7 @@ impl JsonSchemaValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{tests::*, Message};
+    use crate::{publish::EncodableMessage, tests::*};
     use uuid::Uuid;
 
     #[test]

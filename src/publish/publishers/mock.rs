@@ -1,4 +1,4 @@
-use crate::{Publisher, Topic, ValidatedMessage};
+use crate::{publish::Publisher, Topic, ValidatedMessage};
 
 use std::{
     pin::Pin,
@@ -16,7 +16,7 @@ use uuid::Uuid;
 /// # Examples
 ///
 /// ```
-/// use hedwig::publishers::MockPublisher;
+/// use hedwig::publish::MockPublisher;
 /// let publisher = MockPublisher::default();
 /// let publisher_view = publisher.clone();
 /// ```
