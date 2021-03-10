@@ -19,13 +19,18 @@ maintenance = { status = "actively-developed" }
 
 [features]
 default = ["sink"]
+
+# Whether publishing is enabled
+publish = []
+
 # Publishers
 google = ["base64", "yup-oauth2", "hyper", "http", "serde_json", "serde", "serde/derive", "uuid/serde"]
+
 # Validators
 json-schema = ["valico", "serde_json", "serde"]
 protobuf = ["prost"]
 
-sink = ["futures-util/sink", "either"]
+sink = ["futures-util/sink", "either", "publish"]
 
 [[example]]
 name = "publish"

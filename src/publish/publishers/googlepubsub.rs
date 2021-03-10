@@ -94,14 +94,14 @@ impl GooglePubSubError {
     /// This function is useful when deciding whether to re-queue message for publishing.
     ///
     /// ```no_run
-    /// # use hedwig::publishers::GooglePubSubPublisher;
+    /// # use hedwig::publish::GooglePubSubPublisher;
     /// use futures_util::stream::StreamExt;
     ///
     /// let publisher: GooglePubSubPublisher<hyper::client::HttpConnector> = unimplemented!();
-    /// let mut batch = hedwig::PublishBatch::new();
+    /// let mut batch = hedwig::publish::PublishBatch::new();
     /// // add messages
     /// let mut stream = batch.publish(&publisher);
-    /// let mut next_batch = hedwig::PublishBatch::new();
+    /// let mut next_batch = hedwig::publish::PublishBatch::new();
     /// async {
     ///     while let Some(result) = stream.next().await {
     ///         match result {
@@ -181,7 +181,7 @@ impl GooglePubSubError {
 ///              .await
 ///              .expect("could not create an authenticator")
 ///     );
-///     let publisher = hedwig::publishers::GooglePubSubPublisher::new(
+///     let publisher = hedwig::publish::GooglePubSubPublisher::new(
 ///         "rust_publisher".into(),
 ///         google_project.into(),
 ///         client,
@@ -274,7 +274,7 @@ where
     }
 }
 
-impl<C> crate::Publisher for GooglePubSubPublisher<C>
+impl<C> crate::publish::Publisher for GooglePubSubPublisher<C>
 where
     C: hyper::client::connect::Connect + Clone + Send + Sync + 'static,
 {
@@ -317,6 +317,7 @@ where
 }
 
 /// The `GooglePubSubPublisher::publish` stream
+#[cfg_attr(docsrs, doc(cfg(feature = "google")))]
 pub struct GooglePubSubPublishStream(
     Pin<Box<dyn Stream<Item = Result<String, GooglePubSubError>> + Send + 'static>>,
 );
@@ -550,7 +551,7 @@ impl From<PubSubPublishErrorSchema> for PubSubPublishError {
 #[allow(unused)]
 mod tests {
     use super::{GoogleMessageSegmenter, GooglePubSubError, SegmentationResult};
-    use crate::{tests::*, validators, Headers, Message, ValidatedMessage};
+    use crate::{publish::EncodableMessage, tests::*, validators, Headers, ValidatedMessage};
     use futures_util::stream::TryStreamExt;
     use hyper::body::HttpBody;
     use std::time::SystemTime;
