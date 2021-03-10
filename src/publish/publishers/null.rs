@@ -1,4 +1,4 @@
-use crate::{Publisher, ValidatedMessage};
+use crate::{publish::Publisher, ValidatedMessage};
 use futures_util::stream::Stream;
 use std::{pin::Pin, task};
 
@@ -9,7 +9,7 @@ use std::{pin::Pin, task};
 /// # Examples
 ///
 /// ```
-/// use hedwig::publishers::NullPublisher;
+/// use hedwig::publish::NullPublisher;
 /// let publisher = NullPublisher::default();
 /// ```
 #[derive(Debug, Default, Clone, Copy)]

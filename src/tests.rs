@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-use crate::{validators, Headers, Message, ValidatedMessage};
+use crate::{publish::EncodableMessage, validators, Headers, ValidatedMessage};
 
 use futures_util::stream::StreamExt;
 use std::time::SystemTime;
@@ -67,7 +67,7 @@ impl JsonUserCreatedMessage<String> {
 }
 
 #[cfg(feature = "json-schema")]
-impl<'a, I: serde::Serialize> Message for &'a JsonUserCreatedMessage<I> {
+impl<'a, I: serde::Serialize> EncodableMessage for &'a JsonUserCreatedMessage<I> {
     type Error = validators::JsonSchemaValidatorError;
     type Validator = validators::JsonSchemaValidator;
 
@@ -91,8 +91,8 @@ pub(crate) fn assert_send_val<T: Send>(_: &T) {}
 
 #[tokio::test]
 async fn publish_empty_batch() {
-    let publisher = crate::publishers::MockPublisher::new();
-    let batch = super::PublishBatch::new();
+    let publisher = crate::publish::MockPublisher::new();
+    let batch = crate::publish::PublishBatch::new();
     let mut stream = batch.publish(&publisher);
     assert!(matches!(stream.next().await, None));
     assert!(publisher.is_empty());
@@ -102,8 +102,8 @@ async fn publish_empty_batch() {
 #[tokio::test]
 async fn publish_batch() {
     let validator = crate::validators::JsonSchemaValidator::new(SCHEMA).unwrap();
-    let publisher = crate::publishers::MockPublisher::new();
-    let mut batch = super::PublishBatch::new();
+    let publisher = crate::publish::MockPublisher::new();
+    let mut batch = crate::publish::PublishBatch::new();
     let message_one = JsonUserCreatedMessage::new_valid("U123");
     let message_two = JsonUserCreatedMessage::new_valid("U124");
     let message_three = JsonUserCreatedMessage::new_valid("U126");
@@ -147,8 +147,8 @@ async fn publish_batch() {
 
 #[test]
 fn publish_stream_is_send() {
-    let publisher = crate::publishers::MockPublisher::new();
-    let batch = super::PublishBatch::new();
+    let publisher = crate::publish::MockPublisher::new();
+    let batch = crate::publish::PublishBatch::new();
     let stream = batch.publish(&publisher);
     assert_send_val(&stream);
 }
