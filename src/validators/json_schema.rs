@@ -97,13 +97,13 @@ impl JsonSchemaValidator {
                 validation_state
             )));
         }
-        Ok(ValidatedMessage {
+        Ok(ValidatedMessage::new(
             id,
+            timestamp,
             schema,
             headers,
-            timestamp,
-            data: serde_json::to_vec(&value).unwrap(),
-        })
+            serde_json::to_vec(&value).map_err(JsonSchemaValidatorError::SerializeData)?,
+        ))
     }
 }
 
