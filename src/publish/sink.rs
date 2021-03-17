@@ -272,7 +272,7 @@ mod test {
         type Validator = TestValidator;
 
         fn topic(&self) -> Topic {
-            "test_topic"
+            "test_topic".into()
         }
 
         fn encode(self, _: &Self::Validator) -> Result<ValidatedMessage, Self::Error> {
@@ -382,7 +382,7 @@ mod test {
             assert_eq!(1, sink.sink.poll_close_called);
             assert_eq!(
                 vec![(
-                    "test_topic",
+                    "test_topic".into(),
                     TestMessage("foo").encode(&TestValidator).unwrap()
                 )],
                 sink.sink.elements
@@ -517,14 +517,14 @@ mod test {
             assert_eq!(
                 Ok(()),
                 sink.as_mut()
-                    .start_send(("test_topic", test_validated_message("foo")))
+                    .start_send(("test_topic".into(), test_validated_message("foo")))
             );
         }
 
         /// The publisher should start flushing when the batch size has been exceeded
         #[test]
         fn batching_batches() {
-            let topic = "test_topic";
+            let topic = "test_topic".into();
             let batch_size = 3;
             let publisher = MockPublisher::new();
             let sink = publisher_sink(publisher, batch_size);
@@ -565,7 +565,7 @@ mod test {
         /// The publisher should flush buffered elements when asked to close
         #[test]
         fn close_flushes_batch() {
-            let topic = "test_topic";
+            let topic = "test_topic".into();
             let batch_size = 3;
             let publisher = MockPublisher::new();
             let sink = publisher_sink(publisher, batch_size);
@@ -599,7 +599,7 @@ mod test {
         /// The publisher should flush buffered elements when asked to flush
         #[test]
         fn flush_incomplete_batch() {
-            let topic = "test_topic";
+            let topic = "test_topic".into();
             let batch_size = 3;
             let publisher = MockPublisher::new();
             let sink = publisher_sink(publisher, batch_size);
@@ -635,7 +635,7 @@ mod test {
         #[test]
         #[should_panic]
         fn panic_at_buffer_full_without_ready_check() {
-            let topic = "test_topic";
+            let topic = "test_topic".into();
             let batch_size = 1;
             let publisher = MockPublisher::new();
             let sink = publisher_sink(publisher, batch_size);
@@ -656,7 +656,7 @@ mod test {
         /// Step through flushing a non-full batch and see that yield points are respected
         #[test]
         fn partial_flushing_check() {
-            let topic = "test_topic";
+            let topic = "test_topic".into();
             let batch_size = 3;
             let (publisher, command) = ControlledPublisher::new();
             let sink = publisher_sink(publisher, batch_size);
@@ -724,7 +724,7 @@ mod test {
         /// A failed message can be re-sent to the sink and eventually succeed
         #[test]
         fn flushing_error_retry() {
-            let topic = "test_topic";
+            let topic = "test_topic".into();
             let batch_size = 5;
             let (publisher, command) = ControlledPublisher::new();
             let sink = publisher_sink(publisher, batch_size);

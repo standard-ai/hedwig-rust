@@ -71,8 +71,8 @@ impl<'a, I: serde::Serialize> EncodableMessage for &'a JsonUserCreatedMessage<I>
     type Error = validators::JsonSchemaValidatorError;
     type Validator = validators::JsonSchemaValidator;
 
-    fn topic(&self) -> &'static str {
-        "user.created"
+    fn topic(&self) -> crate::Topic {
+        "user.created".into()
     }
     fn encode(self, validator: &Self::Validator) -> Result<ValidatedMessage, Self::Error> {
         validator.validate(
