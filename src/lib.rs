@@ -97,11 +97,12 @@
 #![deny(
     missing_docs,
     broken_intra_doc_links,
-    clippy::all,
+    clippy::correctness,
+    clippy::complexity,
+    clippy::perf,
     unsafe_code,
     unreachable_pub
 )]
-#![allow(clippy::unknown_clippy_lints)]
 #![cfg_attr(not(test), deny(unused))]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
