@@ -1,5 +1,6 @@
 [package]
 name = "hedwig"
+# TODO: When bumping to next major version, make sure to clean up the MRV and lints we allow in CI.
 version = "3.0.0"
 authors = [
     "Aniruddha Maru <aniruddhamaru@gmail.com>",
@@ -24,7 +25,7 @@ google = ["base64", "yup-oauth2", "hyper", "http", "serde_json", "serde", "serde
 # Validators
 json-schema = ["valico", "serde_json", "serde"]
 protobuf = ["prost"]
-
+# Convenience API
 sink = ["futures-util/sink", "either"]
 
 [[example]]

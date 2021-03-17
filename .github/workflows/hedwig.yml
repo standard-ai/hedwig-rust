@@ -37,26 +37,33 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: clippy
+          args: -- -Arenamed-and-removed-lints -Aclippy::unknown-clippy-lints -Aunknown-lints
       - name: Doc
         uses: actions-rs/cargo@v1
         with:
           command: doc
           args: --all-features --manifest-path=Cargo.toml
         env:
-          RUSTDOCFLAGS: --cfg docsrs
+          RUSTDOCFLAGS: --cfg docsrs -Arenamed-and-removed-lints -Aunknown-lints
         if: ${{ matrix.rust_toolchain == 'nightly' }}
       - name: Build without features
         uses: actions-rs/cargo@v1
         with:
           command: build
           args: --no-default-features --manifest-path=Cargo.toml
+        env:
+          RUSTFLAGS: -Arenamed-and-removed-lints -Aunknown-lints -Arenamed-and-removed-lints
       - name: Build with `google` feature
         uses: actions-rs/cargo@v1
         with:
           command: build
           args: --manifest-path=Cargo.toml --features=google
+        env:
+          RUSTFLAGS: -Arenamed-and-removed-lints -Aunknown-lints -Arenamed-and-removed-lints
       - name: Test with all features
         uses: actions-rs/cargo@v1
         with:
           command: test
           args: --manifest-path=Cargo.toml --all-features -- --nocapture
+        env:
+          RUSTFLAGS: -Arenamed-and-removed-lints -Aunknown-lints -Arenamed-and-removed-lints
