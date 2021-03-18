@@ -45,7 +45,8 @@ impl MockPublisher {
     /// be published, was indeed published
     ///
     /// Panics if the message was not published.
-    pub fn assert_message_published(&self, topic: Topic, uuid: &Uuid) {
+    pub fn assert_message_published<T: Into<Topic>>(&self, topic: T, uuid: &Uuid) {
+        let topic = topic.into();
         {
             let lock = self.0.lock().expect("this mutex cannot get poisoned");
             for (mt, msg) in &lock[..] {

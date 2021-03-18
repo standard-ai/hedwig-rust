@@ -58,7 +58,7 @@
 //! impl<'a> hedwig::publish::EncodableMessage for &'a UserCreatedMessage {
 //!     type Error = hedwig::validators::JsonSchemaValidatorError;
 //!     type Validator = hedwig::validators::JsonSchemaValidator;
-//!     fn topic(&self) -> hedwig::Topic { "user.created" }
+//!     fn topic(&self) -> hedwig::Topic { "user.created".into() }
 //!     fn encode(self, validator: &Self::Validator)
 //!     -> Result<hedwig::ValidatedMessage, Self::Error> {
 //!         validator.validate(
@@ -107,19 +107,16 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 use std::{collections::BTreeMap, time::SystemTime};
-
+pub use topic::Topic;
 use uuid::Uuid;
 
 #[cfg(feature = "publish")]
 #[cfg_attr(docsrs, doc(cfg(feature = "publish")))]
 pub mod publish;
-
 #[cfg(test)]
 mod tests;
+mod topic;
 pub mod validators;
-
-/// A message queue topic name to which messages can be published
-pub type Topic = &'static str;
 
 /// All errors that may be returned when operating top level APIs.
 #[derive(Debug, thiserror::Error)]

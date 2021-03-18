@@ -15,8 +15,8 @@ struct UserCreatedMessage {
 impl<'a> EncodableMessage for &'a UserCreatedMessage {
     type Error = hedwig::validators::JsonSchemaValidatorError;
     type Validator = hedwig::validators::JsonSchemaValidator;
-    fn topic(&self) -> &'static str {
-        "user.created"
+    fn topic(&self) -> hedwig::Topic {
+        "user.created".into()
     }
     fn encode(self, validator: &Self::Validator) -> Result<hedwig::ValidatedMessage, Self::Error> {
         Ok(validator

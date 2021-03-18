@@ -185,7 +185,7 @@ where
             None => None,
             Some(stream_item) => Some((
                 stream_item,
-                this.topic,
+                *this.topic,
                 this.messages
                     .next()
                     .expect("should be as many messages as publishes"),
