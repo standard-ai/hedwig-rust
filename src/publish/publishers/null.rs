@@ -20,7 +20,7 @@ impl Publisher for NullPublisher {
     type MessageError = std::convert::Infallible;
     type PublishStream = NullPublishStream;
 
-    fn publish<'a, I>(&self, _: &'static str, messages: I) -> Self::PublishStream
+    fn publish<'a, I>(&self, _: crate::Topic, messages: I) -> Self::PublishStream
     where
         I: Iterator<Item = &'a ValidatedMessage> + ExactSizeIterator,
     {
