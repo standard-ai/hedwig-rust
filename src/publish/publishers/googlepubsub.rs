@@ -194,7 +194,8 @@ pub struct GooglePubSubPublisher<C> {
     identifier: Cow<'static, str>,
     google_cloud_project: Cow<'static, str>,
     client: hyper::Client<C>,
-    authenticator: Authenticator<C>,
+    authenticator: Option<Authenticator<C>>,
+    endpoint: http::Uri,
 }
 
 impl<C> GooglePubSubPublisher<C> {
@@ -209,7 +210,31 @@ impl<C> GooglePubSubPublisher<C> {
             identifier,
             google_cloud_project,
             client,
+            authenticator: Some(authenticator),
+            endpoint: http::Uri::from_static("https://pubsub.googleapis.com/v1"),
+        }
+    }
+
+    /// Create a new Google Cloud Pub/Sub publisher pointed at a specific endpoint.
+    ///
+    /// This could be useful for running against an emulator, or for targeting a particular
+    /// region's endpoint.
+    ///
+    /// The authenticator is also made optional for this constructor, for use in auth-less contexts
+    /// such as emulators.
+    pub fn with_endpoint(
+        identifier: Cow<'static, str>,
+        google_cloud_project: Cow<'static, str>,
+        client: hyper::Client<C>,
+        authenticator: Option<Authenticator<C>>,
+        endpoint: http::Uri,
+    ) -> GooglePubSubPublisher<C> {
+        GooglePubSubPublisher {
+            identifier,
+            google_cloud_project,
+            client,
             authenticator,
+            endpoint,
         }
     }
 }
@@ -217,7 +242,7 @@ impl<C> GooglePubSubPublisher<C> {
 async fn publish_single_body<C>(
     batch: Result<SegmentationResult, GooglePubSubError>,
     uri: http::uri::Uri,
-    authenticator: Authenticator<C>,
+    authenticator: Option<Authenticator<C>>,
     client: hyper::Client<C>,
 ) -> Vec<Result<String, GooglePubSubError>>
 where
@@ -229,17 +254,25 @@ where
     };
     let msg_count = batch.messages_in_body;
     let result = async move {
-        let token = authenticator
-            .token(&AUTH_SCOPES)
-            .await
-            .map_err(|e| GooglePubSubError::GetAuthToken(Arc::new(e)))?;
         let request = http::Request::post(uri)
-            .header(
+            .header(http::header::ACCEPT, JSON_METATYPE)
+            .header(http::header::CONTENT_TYPE, JSON_METATYPE);
+
+        let request = if let Some(authenticator) = authenticator {
+            let token = authenticator
+                .token(&AUTH_SCOPES)
+                .await
+                .map_err(|e| GooglePubSubError::GetAuthToken(Arc::new(e)))?;
+
+            request.header(
                 http::header::AUTHORIZATION,
                 format!("Bearer {}", token.as_str()),
             )
-            .header(http::header::ACCEPT, JSON_METATYPE)
-            .header(http::header::CONTENT_TYPE, JSON_METATYPE)
+        } else {
+            request
+        };
+
+        let request = request
             .body(batch.request_body)
             .map_err(|e| GooglePubSubError::ConstructRequest(Arc::new(e)))?;
         let response = client
@@ -289,10 +322,13 @@ where
             authenticator,
             client,
             google_cloud_project,
+            endpoint,
         } = self;
         let uri = http::Uri::from_maybe_shared(format!(
-            "https://pubsub.googleapis.com/v1/projects/{0}/topics/hedwig-{1}:publish",
-            google_cloud_project, topic
+            "{endpoint}/projects/{project}/topics/hedwig-{topic}:publish",
+            endpoint = endpoint,
+            project = google_cloud_project,
+            topic = topic
         ))
         .map_err(Arc::new);
         let uri = match uri {
