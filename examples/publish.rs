@@ -3,7 +3,7 @@ use hedwig::{
     publish::{EncodableMessage, GooglePubSubPublisher, Publisher},
     Headers,
 };
-use std::{env, sync::Arc, time::SystemTime};
+use std::{env, time::SystemTime};
 
 #[derive(serde::Serialize)]
 struct UserCreatedMessage {
@@ -75,13 +75,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error + 'static>> {
         .expect("$GOOGLE_APPLICATION_CREDENTIALS is not a valid service account key");
 
     let client = hyper::Client::builder().build(hyper_tls::HttpsConnector::new());
-    let authenticator = Arc::new(
-        yup_oauth2::ServiceAccountAuthenticator::builder(secret)
-            .hyper_client(client.clone())
-            .build()
-            .await
-            .expect("could not create an authenticator"),
-    );
+    let authenticator = yup_oauth2::ServiceAccountAuthenticator::builder(secret)
+        .hyper_client(client.clone())
+        .build()
+        .await
+        .expect("could not create an authenticator");
 
     let publisher = GooglePubSubPublisher::new(
         PUBLISHER.into(),

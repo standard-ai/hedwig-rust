@@ -174,13 +174,11 @@ impl GooglePubSubError {
 ///         .await
 ///         .expect("$GOOGLE_APPLICATION_CREDENTIALS is not a valid service account key");
 ///     let client = hyper::Client::builder().build(hyper_tls::HttpsConnector::new());
-///     let authenticator = std::sync::Arc::new(
-///         yup_oauth2::ServiceAccountAuthenticator::builder(secret)
-///              .hyper_client(client.clone())
-///              .build()
-///              .await
-///              .expect("could not create an authenticator")
-///     );
+///     let authenticator = yup_oauth2::ServiceAccountAuthenticator::builder(secret)
+///         .hyper_client(client.clone())
+///         .build()
+///         .await
+///         .expect("could not create an authenticator");
 ///     let publisher = hedwig::publish::GooglePubSubPublisher::new(
 ///         "rust_publisher".into(),
 ///         google_project.into(),
@@ -196,7 +194,7 @@ pub struct GooglePubSubPublisher<C> {
     identifier: Cow<'static, str>,
     google_cloud_project: Cow<'static, str>,
     client: hyper::Client<C>,
-    authenticator: Arc<Authenticator<C>>,
+    authenticator: Authenticator<C>,
 }
 
 impl<C> GooglePubSubPublisher<C> {
@@ -205,7 +203,7 @@ impl<C> GooglePubSubPublisher<C> {
         identifier: Cow<'static, str>,
         google_cloud_project: Cow<'static, str>,
         client: hyper::Client<C>,
-        authenticator: Arc<Authenticator<C>>,
+        authenticator: Authenticator<C>,
     ) -> GooglePubSubPublisher<C> {
         GooglePubSubPublisher {
             identifier,
@@ -219,7 +217,7 @@ impl<C> GooglePubSubPublisher<C> {
 async fn publish_single_body<C>(
     batch: Result<SegmentationResult, GooglePubSubError>,
     uri: http::uri::Uri,
-    authenticator: Arc<Authenticator<C>>,
+    authenticator: Authenticator<C>,
     client: hyper::Client<C>,
 ) -> Vec<Result<String, GooglePubSubError>>
 where
