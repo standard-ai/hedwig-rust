@@ -1,3 +1,41 @@
+//! Validation and decoding for messages encoded with protobuf using [`prost`](::prost)
+//!
+//! ```
+//! use hedwig::validators::prost::{ProstValidator, ProstDecoder, ExactSchemaMatcher};
+//! # use uuid::Uuid;
+//! # use std::time::SystemTime;
+//!
+//! #[derive(Clone, PartialEq, ::prost::Message)]
+//! struct MyMessage {
+//!     #[prost(string, tag = "1")]
+//!     payload: String,
+//! }
+//! let schema = "my-message.proto";
+//!
+//! let message = MyMessage {
+//!     payload: "foobar".to_owned(),
+//! };
+//!
+//! // Demonstrate a message going roundtrip through the validator and the decoder
+//!
+//! let validator = ProstValidator::new();
+//! let validated_message = validator.validate(
+//!     Uuid::new_v4(),
+//!     SystemTime::now(),
+//!     schema,
+//!     hedwig::Headers::default(),
+//!     &message,
+//! )?;
+//!
+//! let decoder = ProstDecoder::new(
+//!     ExactSchemaMatcher::<MyMessage>::new(schema)
+//! );
+//! let decoded_message = decoder.decode(validated_message)?;
+//!
+//! assert_eq!(message, decoded_message);
+//!
+//! # Ok::<_, Box<dyn std::error::Error>>(())
+//! ```
 #![cfg(feature = "prost")]
 
 use std::time::SystemTime;
@@ -75,6 +113,7 @@ impl<S> ProstDecoder<S> {
     ) -> Result<M, ProstDecodeError<S::InvalidSchemaError>>
     where
         S: SchemaMatcher<M>,
+        S::InvalidSchemaError: std::error::Error + 'static,
         M: prost::Message + Default,
     {
         self.schema_matcher
@@ -88,12 +127,44 @@ impl<S> ProstDecoder<S> {
 /// A means of asserting that an incoming message's [`schema`](ValidatedMessage::schema) matches
 /// a given message type's deserialized format.
 ///
-/// For example, an implementation could check that `struct MyMessage { ... }` is a valid
-/// deserialization for an incoming message with schemas like `"my_message_v1.proto"` or
-/// `"my_message_v2.proto"`
+///```
+/// use hedwig::validators::prost::SchemaMatcher;
+///
+/// struct MyMessage {
+///     // ...
+/// }
+///
+/// // SchemaMatcher has a blanket impl over closures
+/// let my_matcher = |schema: &str| {
+///     // imagine some rudimentary version check
+///     if schema.starts_with("messages/my-message/my-schema-")
+///         && (schema.ends_with("my-schema-v1.proto") ||
+///             schema.ends_with("my-schema-v2.proto")) {
+///         Ok(())
+///     } else {
+///         Err(format!("incompatible schema: {}", schema))
+///     }
+/// };
+///
+/// assert_eq!(
+///     Ok(()),
+///     SchemaMatcher::<MyMessage>::try_match_schema(
+///         &my_matcher,
+///         "messages/my-message/my-schema-v2.proto"
+///     )
+/// );
+///
+/// assert_eq!(
+///     Err("incompatible schema: messages/my-message/my-schema-v3.proto".to_owned()),
+///     SchemaMatcher::<MyMessage>::try_match_schema(
+///         &my_matcher,
+///         "messages/my-message/my-schema-v3.proto"
+///     )
+/// );
+///```
 pub trait SchemaMatcher<MessageType> {
     /// The error returned when a given schema does not match the message type
-    type InvalidSchemaError: std::error::Error + Send + Sync + 'static;
+    type InvalidSchemaError;
 
     /// Check whether messages with the given schema are valid for deserializing into the trait's
     /// generic message type.
@@ -106,7 +177,6 @@ pub trait SchemaMatcher<MessageType> {
 impl<T, F, E> SchemaMatcher<T> for F
 where
     F: Fn(&str) -> Result<(), E>,
-    E: std::error::Error + Send + Sync + 'static,
 {
     type InvalidSchemaError = E;
 
@@ -138,6 +208,28 @@ impl SchemaMismatchError {
 
 /// A [`SchemaMatcher`] which expects all incoming schemas to match exactly one string for the
 /// given message type
+///
+/// ```
+/// use hedwig::validators::prost::{ExactSchemaMatcher, SchemaMatcher, SchemaMismatchError};
+///
+/// struct MyMessage {
+///     // ...
+/// }
+/// let schema = "messages/my-message/my-schema-v1.proto";
+///
+/// let my_matcher = ExactSchemaMatcher::<MyMessage>::new(schema);
+///
+/// assert_eq!(Ok(()), my_matcher.try_match_schema(schema));
+///
+/// let bad_schema = "messages/my-message/my-schema-v2.proto";
+/// assert_eq!(
+///     Err(SchemaMismatchError::new::<MyMessage>(
+///         schema,
+///         bad_schema.to_owned()
+///     )),
+///     my_matcher.try_match_schema(bad_schema)
+/// );
+///```
 pub struct ExactSchemaMatcher<T> {
     expected_schema: &'static str,
     _message_type: std::marker::PhantomData<fn(T)>, // <fn(T)> instead of <T> to make Send + Sync unconditional
