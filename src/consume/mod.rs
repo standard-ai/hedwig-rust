@@ -1,6 +1,6 @@
 //! Types, traits, and functions necessary to consume messages using hedwig
 //!
-//! See the [`Consumer`] trait and [`consume`] function as entry points.
+//! See the [`Consumer`] trait.
 
 use crate::ValidatedMessage;
 use async_trait::async_trait;
@@ -43,37 +43,36 @@ pub trait Consumer {
     /// The type of acknowledgement tokens produced by the underlying service implementation
     type AckToken: AcknowledgeToken;
     /// Errors encountered while streaming messages
-    type Error: std::error::Error + Send + Sync + 'static;
+    type Error;
     /// The stream returned by [`stream`]
     type Stream: stream::Stream<
         Item = Result<AcknowledgeableMessage<Self::AckToken, ValidatedMessage>, Self::Error>,
     >;
 
-    /// Begin pulling messages from the backing message service
+    /// Begin pulling messages from the backing message service.
+    ///
+    /// The messages produced by this stream have not been decoded yet. Users should typically call
+    /// [`consume`](Consumer::consume) instead, to produce decoded messages.
     fn stream(self) -> Self::Stream;
-}
 
-/// Create a stream of decoded messages using the given [`Consumer`] and a validator for the given
-/// [decodable](DecodableMessage) message
-pub fn consume<C, M>(
-    consumer: C,
-    validator: M::Validator,
-) -> MessageStream<C::Stream, M::Validator, M>
-where
-    C: Consumer,
-    M: DecodableMessage,
-{
-    MessageStream {
-        stream: consumer.stream(),
-        validator,
-        _message_type: std::marker::PhantomData,
+    /// Create a stream of decoded messages from this consumer, using a validator for the given
+    /// [decodable](DecodableMessage) message type.
+    fn consume<M>(self, validator: M::Validator) -> MessageStream<Self::Stream, M::Validator, M>
+        where Self: Sized,
+              M: DecodableMessage,
+    {
+        MessageStream {
+            stream: self.stream(),
+            validator,
+            _message_type: std::marker::PhantomData,
+        }
     }
 }
 
 /// Messages which can be decoded from a [`ValidatedMessage`] stream.
 pub trait DecodableMessage {
     /// The error returned when a message fails to decode
-    type Error: std::error::Error + Send + Sync + 'static;
+    type Error;
 
     /// The validator used to decode a validated message
     type Validator;
@@ -88,6 +87,7 @@ pub trait DecodableMessage {
 /// service.
 ///
 /// See the documentation for acknowledging messages on [`Consumer`]
+#[must_use = "Messages should be ack'ed to prevent repeated delivery, or nack'ed to improve responsiveness"]
 pub struct AcknowledgeableMessage<A, M> {
     /// The acknowledgement token which executes the ack/nack/modify operations
     pub ack_token: A,
@@ -143,13 +143,14 @@ impl<A, M> std::ops::DerefMut for AcknowledgeableMessage<A, M> {
 ///
 /// See the documentation for acknowledging messages on [`Consumer`]
 #[async_trait]
+#[must_use = "Messages should be ack'ed to prevent repeated delivery, or nack'ed to improve responsiveness"]
 pub trait AcknowledgeToken {
     /// Errors returned by [`ack`](AcknowledgeToken::ack)
-    type AckError: std::error::Error + Send + Sync + 'static;
+    type AckError;
     /// Errors returned by [`nack`](AcknowledgeToken::nack)
-    type NackError: std::error::Error + Send + Sync + 'static;
+    type NackError;
     /// Errors returned by [`modify_deadline`](AcknowledgeToken::modify_deadline)
-    type ModifyError: std::error::Error + Send + Sync + 'static;
+    type ModifyError;
 
     /// Acknowledge the associated message
     async fn ack(self) -> Result<(), Self::AckError>;
@@ -163,7 +164,7 @@ pub trait AcknowledgeToken {
     async fn modify_deadline(&mut self, seconds: u32) -> Result<(), Self::ModifyError>;
 }
 
-/// The stream returned by the [`consume`] function
+/// The stream returned by the [`consume`](Consumer::consume) function
 #[pin_project]
 pub struct MessageStream<S, V, M> {
     #[pin]
