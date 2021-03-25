@@ -15,6 +15,15 @@ use std::{
 /// Message consumers ingest messages from a queue service and present them to the user application
 /// as a [`Stream`](futures_util::stream::Stream).
 ///
+/// ## Message Decoding
+///
+/// Messages pulled from the service are assumed to have been created by some
+#[cfg_attr(feature = "publish", doc = "[hedwig publisher](crate::publish::Publisher)")]
+#[cfg_attr(not(feature = "publish"), doc = "hedwig publisher")]
+/// and therefore were validated against the included schema when publishing. It is the decoder's
+/// responsibility (when provided to functions like [`consume`](Consumer::consume)) to check this
+/// schema and the accompanying payload for validity.
+///
 /// ## Acknowledging Messages
 /// Typically message services deliver messages with a particular delivery time window, during
 /// which this message won't be sent to other consumers. In AWS SQS this is called the [visibility
@@ -55,15 +64,15 @@ pub trait Consumer {
     /// [`consume`](Consumer::consume) instead, to produce decoded messages.
     fn stream(self) -> Self::Stream;
 
-    /// Create a stream of decoded messages from this consumer, using a validator for the given
+    /// Create a stream of decoded messages from this consumer, using a decoder for the given
     /// [decodable](DecodableMessage) message type.
-    fn consume<M>(self, validator: M::Validator) -> MessageStream<Self::Stream, M::Validator, M>
+    fn consume<M>(self, decoder: M::Decoder) -> MessageStream<Self::Stream, M::Decoder, M>
         where Self: Sized,
               M: DecodableMessage,
     {
         MessageStream {
             stream: self.stream(),
-            validator,
+            decoder,
             _message_type: std::marker::PhantomData,
         }
     }
@@ -74,11 +83,11 @@ pub trait DecodableMessage {
     /// The error returned when a message fails to decode
     type Error;
 
-    /// The validator used to decode a validated message
-    type Validator;
+    /// The decoder used to decode a validated message
+    type Decoder;
 
-    /// Decode the given message, using the given validator, into its structured type
-    fn decode(msg: ValidatedMessage, validator: &Self::Validator) -> Result<Self, Self::Error>
+    /// Decode the given message, using the given decoder, into its structured type
+    fn decode(msg: ValidatedMessage, decoder: &Self::Decoder) -> Result<Self, Self::Error>
     where
         Self: Sized;
 }
@@ -166,33 +175,33 @@ pub trait AcknowledgeToken {
 
 /// The stream returned by the [`consume`](Consumer::consume) function
 #[pin_project]
-pub struct MessageStream<S, V, M> {
+pub struct MessageStream<S, D, M> {
     #[pin]
     stream: S,
-    validator: V,
+    decoder: D,
     _message_type: std::marker::PhantomData<M>,
 }
 
-impl<S, V, M, AckToken, StreamError> stream::Stream for MessageStream<S, V, M>
+impl<S, D, M, AckToken, StreamError> stream::Stream for MessageStream<S, D, M>
 where
     S: stream::Stream<
         Item = Result<AcknowledgeableMessage<AckToken, ValidatedMessage>, StreamError>,
     >,
-    M: DecodableMessage<Validator = V>,
+    M: DecodableMessage<Decoder = D>,
 {
     #[allow(clippy::type_complexity)] // it is what it is, aliases would all be generic anyway
     type Item = Result<AcknowledgeableMessage<AckToken, M>, Either<StreamError, M::Error>>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         let this = self.project();
-        let validator = this.validator;
+        let decoder = this.decoder;
         this.stream.poll_next(cx).map(|opt| {
             opt.map(|res| {
                 res.map_err(Either::Left).and_then(
                     |AcknowledgeableMessage { ack_token, message }| {
                         Ok(AcknowledgeableMessage {
                             ack_token,
-                            message: M::decode(message, validator).map_err(Either::Right)?,
+                            message: M::decode(message, decoder).map_err(Either::Right)?,
                         })
                     },
                 )
