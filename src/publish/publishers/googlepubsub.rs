@@ -471,7 +471,7 @@ impl<'a, I> GoogleMessageSegmenter<'a, I> {
                 hedwig_publisher: &*self.identifier,
                 hedwig_message_timestamp: &timestamp,
                 hedwig_format_version: "1.0",
-                hedwig_schema: message.schema,
+                hedwig_schema: &message.schema,
                 headers: &message.headers,
             },
         })
