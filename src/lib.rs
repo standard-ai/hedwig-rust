@@ -94,16 +94,6 @@
 //! # Ok(())
 //! # }
 //! ```
-#![deny(
-    missing_docs,
-    broken_intra_doc_links,
-    clippy::correctness,
-    clippy::complexity,
-    clippy::perf,
-    unsafe_code,
-    unreachable_pub
-)]
-#![cfg_attr(not(test), deny(unused))]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 use std::{borrow::Cow, collections::BTreeMap, time::SystemTime};
