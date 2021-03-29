@@ -24,7 +24,7 @@ Add to Cargo.toml:
 
 ```toml
 [dependencies]
-hedwig = "3"
+hedwig = "4"
 ```
 
 You may also need to enable additional features in order to use the optional publishers or
@@ -32,7 +32,7 @@ validators, like this:
 
 ```toml
 [dependencies]
-hedwig = { version = "3", features = ["google"] }
+hedwig = { version = "4", features = ["google"] }
 ```
 
 ### Usage
