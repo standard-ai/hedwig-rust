@@ -177,8 +177,6 @@ where
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         let this = self.project();
 
-        // `map` has lifetime constraints that aren't nice here
-        #[allow(clippy::manual_map)]
         Poll::Ready(match ready!(this.publish_stream.poll_next(cx)) {
             None => None,
             Some(stream_item) => Some((
