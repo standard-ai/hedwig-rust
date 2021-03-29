@@ -19,10 +19,11 @@ categories = ["asynchronous", "web-programming"]
 maintenance = { status = "actively-developed" }
 
 [features]
-default = ["sink"]
+default = ["consume", "sink"]
 
-# Whether publishing is enabled
+# Whether publishing/consuming is enabled
 publish = []
+consume = ["async-trait", "either"]
 
 # Publishers
 google = ["base64", "yup-oauth2", "hyper", "http", "serde_json", "serde", "serde/derive", "uuid/serde"]
@@ -39,13 +40,15 @@ name = "publish"
 required-features = ["google", "json-schema"]
 
 [dependencies]
+bytes = "1"
 futures-util = { version = "0.3", features = ["std"], default-features = false }
 pin-project = "1"
 thiserror = { version = "1", default-features = false }
 url = { version = "2", default-features = false }
 uuid = { version = "^0.8", features = ["v4"], default-features = false }
 
-either = { version = "1", optional = true, default-features = false }
+async-trait = { version = "0.1", optional = true }
+either = { version = "1", optional = true, features = ["use_std"], default-features = false }
 serde = { version = "^1.0", optional = true, default-features = false }
 serde_json = { version = "^1", features = ["std"], optional = true, default-features = false }
 valico = { version = "^3.2", optional = true, default-features = false }
@@ -57,6 +60,7 @@ prost = { version = "0.7", optional = true, features = ["std"], default-features
 
 [dev-dependencies]
 hyper-tls = "0.5.0"
+prost = { version = "0.7", features = ["std", "prost-derive"] }
 tokio = { version = "1", features = ["macros", "rt"] }
 serde = { version = "1", features = ["derive"] }
 

@@ -106,13 +106,20 @@
 #![cfg_attr(not(test), deny(unused))]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-use std::{collections::BTreeMap, time::SystemTime};
+use std::{borrow::Cow, collections::BTreeMap, time::SystemTime};
 pub use topic::Topic;
+
+use bytes::Bytes;
 use uuid::Uuid;
 
 #[cfg(feature = "publish")]
 #[cfg_attr(docsrs, doc(cfg(feature = "publish")))]
 pub mod publish;
+
+#[cfg(feature = "consume")]
+#[cfg_attr(docsrs, doc(cfg(feature = "consume")))]
+pub mod consume;
+
 #[cfg(test)]
 mod tests;
 mod topic;
@@ -132,7 +139,8 @@ pub type Headers = BTreeMap<String, String>;
 
 /// A validated message.
 ///
-/// The only way to construct this is via a validator.
+/// These are created by validators after encoding a user message, or when pulling messages from
+/// the message service.
 #[derive(Debug, Clone)]
 // derive Eq only in tests so that users can't foot-shoot an expensive == over data
 #[cfg_attr(test, derive(PartialEq, Eq))]
@@ -144,16 +152,31 @@ pub struct ValidatedMessage {
     /// URI of the schema validating this message.
     ///
     /// E.g. `https://hedwig.domain.xyz/schemas#/schemas/user.created/1.0`
-    schema: &'static str,
+    schema: Cow<'static, str>,
     /// Custom message headers.
     ///
     /// This may be used to track request_id, for example.
     headers: Headers,
     /// The encoded message data.
-    data: Vec<u8>,
+    data: Bytes,
 }
 
 impl ValidatedMessage {
+    /// Create a new validated message
+    pub fn new<S, D>(id: Uuid, timestamp: SystemTime, schema: S, headers: Headers, data: D) -> Self
+    where
+        S: Into<Cow<'static, str>>,
+        D: Into<Bytes>,
+    {
+        Self {
+            id,
+            timestamp,
+            schema: schema.into(),
+            headers,
+            data: data.into(),
+        }
+    }
+
     /// Unique message identifier.
     pub fn uuid(&self) -> &Uuid {
         &self.id

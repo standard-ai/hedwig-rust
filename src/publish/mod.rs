@@ -107,12 +107,10 @@ impl PublishBatch {
     /// message ordering either.
     ///
     /// Some kinds of errors that occur during publishing may not be transient. An example of such
-    /// an error is attempting to publish a too large message with the [`GooglePubSubPublisher`].
+    /// an error is attempting to publish a too large message with the `GooglePubSubPublisher`.
     /// For
     /// errors like these retrying is most likely incorrect as they would just fail again.
     /// Publisher-specific error types may have methods to make a decision easier.
-    ///
-    /// [`GooglePubSubPublisher`]: publishers::GooglePubSubPublisher
     pub fn publish<P>(self, publisher: &P) -> PublishBatchStream<P::PublishStream>
     where
         P: Publisher,

@@ -256,9 +256,9 @@ mod test {
         ValidatedMessage {
             id: uuid::Uuid::nil(),
             timestamp: std::time::SystemTime::UNIX_EPOCH,
-            schema: "test_schema",
+            schema: "test_schema".into(),
             headers: crate::Headers::default(),
-            data: data.into(),
+            data: data.into().into(),
         }
     }
 
