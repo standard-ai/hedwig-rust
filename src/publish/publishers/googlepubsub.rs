@@ -189,6 +189,7 @@ impl GooglePubSubError {
 /// };
 /// ```
 #[allow(missing_debug_implementations)]
+#[derive(Clone)]
 #[cfg_attr(docsrs, doc(cfg(feature = "google")))]
 pub struct GooglePubSubPublisher<C> {
     identifier: Cow<'static, str>,
