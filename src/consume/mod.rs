@@ -96,6 +96,7 @@ pub trait DecodableMessage {
 /// service.
 ///
 /// See the documentation for acknowledging messages on [`Consumer`]
+#[derive(Debug)]
 #[must_use = "Messages should be ack'ed to prevent repeated delivery, or nack'ed to improve responsiveness"]
 pub struct AcknowledgeableMessage<A, M> {
     /// The acknowledgement token which executes the ack/nack/modify operations
@@ -175,6 +176,7 @@ pub trait AcknowledgeToken {
 
 /// The stream returned by the [`consume`](Consumer::consume) function
 #[pin_project]
+#[derive(Debug)]
 pub struct MessageStream<S, D, M> {
     #[pin]
     stream: S,
