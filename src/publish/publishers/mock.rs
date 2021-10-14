@@ -88,6 +88,7 @@ impl Publisher for MockPublisher {
         I: Iterator<Item = &'a ValidatedMessage> + ExactSizeIterator,
     {
         let data = self.0.clone();
+        #[allow(clippy::needless_collect)] // we need Send + Sync, which I isn't
         let messages: Vec<_> = messages.cloned().collect();
         MockPublishStream(Box::new(messages.into_iter().map(move |msg| {
             let id = msg.id;

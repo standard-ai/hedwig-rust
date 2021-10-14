@@ -82,7 +82,7 @@ impl JsonSchemaValidator {
             url::Url::parse(&wildcard_url)
                 .map_err(|e| JsonSchemaValidatorError::SchemaUrlParse(e, wildcard_url))?
         } else {
-            url::Url::parse(&schema)
+            url::Url::parse(schema)
                 .map_err(|e| JsonSchemaValidatorError::SchemaUrlParse(e, schema.into()))?
         };
         let msg_schema = self
