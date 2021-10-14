@@ -9,88 +9,67 @@
 //! Publish a message. Payload encoded with JSON and validated using a JSON Schema.
 //!
 //! ```
-//! use uuid::Uuid;
-//! use std::{path::Path, time::SystemTime};
-//! use futures_util::stream::StreamExt;
-//!
-//! # #[cfg(not(feature = "json-schema"))]
+//! use hedwig::{validators, Publisher, Consumer};
+//! # use uuid::Uuid;
+//! # use std::{path::Path, time::SystemTime};
+//! # use futures_util::{sink::SinkExt, stream::StreamExt};
+//! # #[cfg(not(all(feature = "protobuf", feature = "mock")))]
 //! # fn main() {}
+//! # #[cfg(all(feature = "protobuf", feature = "mock"))] // example uses a protobuf validator.
+//! # #[tokio::main(flavor = "current_thread")]
+//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!
-//! # #[cfg(feature = "json-schema")] // example uses a JSON Schema validator.
-//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let schema = r#"{
-//!     "$id": "https://hedwig.corp/schema",
-//!     "$schema": "https://json-schema.org/draft-04/schema#",
-//!     "description": "Example Schema",
-//!     "schemas": {
-//!         "user-created": {
-//!             "1.*": {
-//!                 "description": "A new user was created",
-//!                 "type": "object",
-//!                 "x-versions": [
-//!                     "1.0"
-//!                 ],
-//!                 "required": [
-//!                     "user_id"
-//!                 ],
-//!                 "properties": {
-//!                     "user_id": {
-//!                         "$ref": "https://hedwig.corp/schema#/definitions/UserId/1.0"
-//!                     }
-//!                 }
-//!             }
-//!         }
-//!     },
-//!     "definitions": {
-//!         "UserId": {
-//!             "1.0": {
-//!                 "type": "string"
-//!             }
-//!         }
-//!     }
-//! }"#;
-//!
-//! #[derive(serde::Serialize)]
+//! #[derive(Clone, PartialEq, Eq, prost::Message)]
 //! struct UserCreatedMessage {
+//!     #[prost(string, tag = "1")]
 //!     user_id: String,
 //! }
 //!
-//! impl<'a> hedwig::publish::EncodableMessage for &'a UserCreatedMessage {
-//!     type Error = hedwig::validators::JsonSchemaValidatorError;
-//!     type Validator = hedwig::validators::JsonSchemaValidator;
-//!     fn topic(&self) -> hedwig::Topic { "user.created".into() }
-//!     fn encode(self, validator: &Self::Validator)
-//!     -> Result<hedwig::ValidatedMessage, Self::Error> {
-//!         validator.validate(
-//!             Uuid::new_v4(),
+//! impl<'a> hedwig::EncodableMessage for UserCreatedMessage {
+//!     type Error = validators::ProstValidatorError;
+//!     type Validator = validators::ProstValidator;
+//!     fn topic(&self) -> hedwig::Topic {
+//!         "user.created".into()
+//!     }
+//!     fn encode(self, validator: &Self::Validator) -> Result<hedwig::ValidatedMessage, Self::Error> {
+//!         Ok(validator.validate(
+//!             uuid::Uuid::new_v4(),
 //!             SystemTime::now(),
-//!             "https://hedwig.corp/schema#/schemas/user.created/1.0",
-//!             hedwig::Headers::new(),
-//!             self,
-//!         )
+//!             "user.created/1.0",
+//!             Default::default(),
+//!             &self,
+//!         )?)
 //!     }
 //! }
 //!
-//! let publisher = /* Some publisher */
-//! # hedwig::publish::NullPublisher;
-//! let validator = hedwig::validators::JsonSchemaValidator::new(schema)?;
-//! let mut batch = hedwig::publish::PublishBatch::new();
-//! batch.message(&validator, &UserCreatedMessage { user_id: String::from("U_123") });
-//! let mut result_stream = batch.publish(&publisher);
-//! let mut next_batch = hedwig::publish::PublishBatch::new();
-//! async {
-//!     while let Some(result) = result_stream.next().await {
-//!         match result {
-//!             (Ok(id), _, msg) => {
-//!                 println!("message {} published successfully: {:?}", msg.uuid(), id);
-//!             }
-//!             (Err(e), topic, msg) => {
-//!                 eprintln!("failed to publish {}: {}", msg.uuid(), e);
-//!                 next_batch.push(topic, msg);
-//!             }
-//!         }
+//! impl hedwig::DecodableMessage for UserCreatedMessage {
+//!     type Error = validators::ProstDecodeError<validators::prost::SchemaMismatchError>;
+//!     type Decoder =
+//!         validators::ProstDecoder<validators::prost::ExactSchemaMatcher<UserCreatedMessage>>;
+//!
+//!     fn decode(msg: hedwig::ValidatedMessage, decoder: &Self::Decoder) -> Result<Self, Self::Error> {
+//!         decoder.decode(msg)
 //!     }
-//! };
+//! }
+//!
+//!
+//! let publisher = /* Some publisher */
+//! # hedwig::mock::MockPublisher::new();
+//! let consumer = /* Consumer associated to that publisher */
+//! # publisher.new_consumer("user.created", "example_subscription");
+//!
+//! let mut publish_sink = publisher.publish_sink(validators::ProstValidator::new());
+//! let mut consumer_stream = consumer.consume::<UserCreatedMessage>(
+//!     validators::ProstDecoder::new(validators::prost::ExactSchemaMatcher::new("user.created/1.0")),
+//! );
+//!
+//! publish_sink.send(UserCreatedMessage { user_id: String::from("U_123") }).await?;
+//!
+//! assert_eq!(
+//!     "U_123",
+//!     consumer_stream.next().await.unwrap()?.ack().await?.user_id
+//! );
+//!
 //! # Ok(())
 //! # }
 //! ```
@@ -102,18 +81,23 @@ pub use topic::Topic;
 use bytes::Bytes;
 use uuid::Uuid;
 
-#[cfg(feature = "publish")]
-#[cfg_attr(docsrs, doc(cfg(feature = "publish")))]
-pub mod publish;
-
-#[cfg(feature = "consume")]
-#[cfg_attr(docsrs, doc(cfg(feature = "consume")))]
-pub mod consume;
-
-#[cfg(test)]
+mod backends;
+mod consumer;
+mod publisher;
 mod tests;
 mod topic;
 pub mod validators;
+
+pub use backends::*;
+pub use consumer::*;
+pub use publisher::*;
+
+// TODO make these public somewhere?
+pub(crate) const HEDWIG_ID: &str = "hedwig_id";
+pub(crate) const HEDWIG_MESSAGE_TIMESTAMP: &str = "hedwig_message_timestamp";
+pub(crate) const HEDWIG_SCHEMA: &str = "hedwig_schema";
+pub(crate) const HEDWIG_PUBLISHER: &str = "hedwig_publisher";
+pub(crate) const HEDWIG_FORMAT_VERSION: &str = "hedwig_format_version";
 
 /// All errors that may be returned when operating top level APIs.
 #[derive(Debug, thiserror::Error)]
@@ -191,8 +175,18 @@ impl ValidatedMessage {
         &self.headers
     }
 
+    /// Mutable access to the message headers
+    pub fn headers_mut(&mut self) -> &mut Headers {
+        &mut self.headers
+    }
+
     /// The encoded message data.
     pub fn data(&self) -> &[u8] {
         &self.data
+    }
+
+    /// Destructure this message into just the contained data
+    pub fn into_data(self) -> Bytes {
+        self.data
     }
 }

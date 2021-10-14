@@ -1,8 +1,11 @@
-#![allow(unused)]
+#![cfg(feature = "json-schema")]
 
-use crate::{publish::EncodableMessage, validators, Headers, ValidatedMessage};
+use crate::{
+    mock::MockPublisher, validators, validators::JsonSchemaValidatorError, Consumer,
+    DecodableMessage, EncodableMessage, Headers, Publisher, Topic, ValidatedMessage,
+};
 
-use futures_util::stream::StreamExt;
+use futures_util::{sink::SinkExt, stream::StreamExt};
 use std::time::SystemTime;
 use uuid::Uuid;
 
@@ -41,7 +44,7 @@ pub(crate) const SCHEMA: &str = r#"{
     }
 }"#;
 
-#[derive(serde::Serialize)]
+#[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct JsonUserCreatedMessage<I> {
     #[serde(skip)]
     pub(crate) uuid: uuid::Uuid,
@@ -49,7 +52,7 @@ pub(crate) struct JsonUserCreatedMessage<I> {
     pub(crate) schema: &'static str,
     #[serde(skip)]
     pub(crate) headers: Headers,
-    #[serde(skip)]
+    #[serde(skip, default = "SystemTime::now")]
     pub(crate) time: SystemTime,
     pub(crate) user_id: I,
 }
@@ -66,12 +69,11 @@ impl JsonUserCreatedMessage<String> {
     }
 }
 
-#[cfg(feature = "json-schema")]
 impl<'a, I: serde::Serialize> EncodableMessage for &'a JsonUserCreatedMessage<I> {
     type Error = validators::JsonSchemaValidatorError;
     type Validator = validators::JsonSchemaValidator;
 
-    fn topic(&self) -> crate::Topic {
+    fn topic(&self) -> Topic {
         "user.created".into()
     }
     fn encode(self, validator: &Self::Validator) -> Result<ValidatedMessage, Self::Error> {
@@ -85,25 +87,25 @@ impl<'a, I: serde::Serialize> EncodableMessage for &'a JsonUserCreatedMessage<I>
     }
 }
 
-pub(crate) fn assert_error<T: std::error::Error + Send + Sync + 'static>() {}
-pub(crate) fn assert_send<T: Send>() {}
-pub(crate) fn assert_send_val<T: Send>(_: &T) {}
+impl DecodableMessage for JsonUserCreatedMessage<String> {
+    type Error = serde_json::Error;
+    type Decoder = ();
 
-#[tokio::test]
-async fn publish_empty_batch() {
-    let publisher = crate::publish::MockPublisher::new();
-    let batch = crate::publish::PublishBatch::new();
-    let mut stream = batch.publish(&publisher);
-    assert!(matches!(stream.next().await, None));
-    assert!(publisher.is_empty());
+    fn decode(msg: ValidatedMessage, _: &()) -> Result<Self, Self::Error> {
+        println!("{:?}", String::from_utf8_lossy(msg.data()));
+        Ok(JsonUserCreatedMessage {
+            uuid: *msg.uuid(),
+            headers: msg.headers().clone(),
+            schema: "https://hedwig.corp/schema#/schemas/user.created/1.0",
+            time: *msg.timestamp(),
+            ..serde_json::from_slice(msg.data())?
+        })
+    }
 }
 
-#[cfg(feature = "json-schema")]
 #[tokio::test]
-async fn publish_batch() {
-    let validator = crate::validators::JsonSchemaValidator::new(SCHEMA).unwrap();
-    let publisher = crate::publish::MockPublisher::new();
-    let mut batch = crate::publish::PublishBatch::new();
+async fn publish_messages() -> Result<(), Box<dyn std::error::Error>> {
+    let publisher = MockPublisher::new();
     let message_one = JsonUserCreatedMessage::new_valid("U123");
     let message_two = JsonUserCreatedMessage::new_valid("U124");
     let message_three = JsonUserCreatedMessage::new_valid("U126");
@@ -114,41 +116,51 @@ async fn publish_batch() {
         time: SystemTime::now(),
         headers: Headers::new(),
     };
-    batch
-        .message(&validator, &message_one)
-        .expect("adding valid message");
+
+    // prepare a consumer to read any sent messages
+    let mut consumer = publisher
+        .new_consumer((&message_one).topic(), "subscription1")
+        .consume::<JsonUserCreatedMessage<String>>(());
+
+    // publishing the message with a u64 id should error on trying to send
+    let mut publish_sink = <MockPublisher as Publisher<&JsonUserCreatedMessage<u64>>>::publish_sink(
+        publisher.clone(),
+        crate::validators::JsonSchemaValidator::new(SCHEMA).unwrap(),
+    );
     assert!(matches!(
-        batch.message(&validator, &message_invalid).err(),
-        Some(_)
+        publish_sink.send(&message_invalid).await,
+        Err(either::Either::Left(
+            JsonSchemaValidatorError::ValidateData { .. }
+        ))
     ));
-    batch
-        .message(&validator, &message_two)
-        .expect("adding valid message");
-    batch
-        .message(&validator, &message_three)
-        .expect("adding valid message");
-    let mut stream = batch.publish(&publisher);
-    // Stream should return the message ids that are actually being published.
-    //
+
+    // publishing the type with string ids should work
+    let mut publish_sink =
+        <MockPublisher as Publisher<&JsonUserCreatedMessage<String>>>::publish_sink(
+            publisher.clone(),
+            crate::validators::JsonSchemaValidator::new(SCHEMA).unwrap(),
+        );
+
+    assert!(publish_sink.send(&message_one).await.is_ok());
+    assert!(publish_sink.send(&message_two).await.is_ok());
+    assert!(publish_sink.send(&message_three).await.is_ok());
+
     // The ordering doesn't necessarily need to be preserved, but for the purpose of this test we
     // know that `MockPublisher` does.
-    assert_eq!(stream.next().await.map(|x| x.0), Some(Ok(message_one.uuid)));
-    assert_eq!(stream.next().await.map(|x| x.0), Some(Ok(message_two.uuid)));
     assert_eq!(
-        stream.next().await.map(|x| x.0),
-        Some(Ok(message_three.uuid))
+        message_one,
+        consumer.next().await.unwrap().unwrap().ack().await.unwrap()
     );
-    assert_eq!(stream.next().await.map(|x| x.0), None);
-    assert_eq!(publisher.len(), 3);
-    publisher.assert_message_published("user.created", &message_one.uuid);
-    publisher.assert_message_published("user.created", &message_two.uuid);
-    publisher.assert_message_published("user.created", &message_three.uuid);
+
+    Ok(())
 }
 
 #[test]
-fn publish_stream_is_send() {
-    let publisher = crate::publish::MockPublisher::new();
-    let batch = crate::publish::PublishBatch::new();
-    let stream = batch.publish(&publisher);
-    assert_send_val(&stream);
+fn publish_sink_is_send() {
+    let publisher = MockPublisher::new();
+    let sink = <MockPublisher as Publisher<&JsonUserCreatedMessage<String>>>::publish_sink(
+        publisher,
+        crate::validators::JsonSchemaValidator::new(SCHEMA).unwrap(),
+    );
+    crate::tests::assert_send_val(&sink);
 }

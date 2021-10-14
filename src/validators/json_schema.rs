@@ -110,7 +110,7 @@ impl JsonSchemaValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{publish::EncodableMessage, tests::*};
+    use crate::{tests::json::*, EncodableMessage};
     use uuid::Uuid;
 
     #[test]
@@ -192,7 +192,7 @@ mod tests {
 
     #[test]
     fn errors_send_sync() {
-        assert_error::<JsonSchemaValidatorError>();
+        crate::tests::assert_error::<JsonSchemaValidatorError>();
     }
 
     #[test]

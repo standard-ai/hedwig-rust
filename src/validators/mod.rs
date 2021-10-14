@@ -15,6 +15,3 @@ pub use self::json_schema::*;
 pub mod prost;
 #[cfg(feature = "prost")]
 pub use self::prost::{ProstDecodeError, ProstDecoder, ProstValidator, ProstValidatorError};
-
-// #[cfg_attr(docsrs, doc(cfg(feature = "prost")))]
-// pub use self::prost::ProstValidator;

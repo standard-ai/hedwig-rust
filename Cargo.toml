@@ -4,7 +4,8 @@ name = "hedwig"
 version = "4.1.0"
 authors = [
     "Aniruddha Maru <aniruddhamaru@gmail.com>",
-    "Simonas Kazlauskas <hedwig@kazlauskas.me>"
+    "Simonas Kazlauskas <hedwig@kazlauskas.me>",
+    "Renar Narubin <r.narubin@gmail.com>",
 ]
 edition = "2018"
 repository = "https://github.com/standard-ai/hedwig-rust.git"
@@ -19,50 +20,45 @@ categories = ["asynchronous", "web-programming"]
 maintenance = { status = "actively-developed" }
 
 [features]
-default = ["consume", "sink"]
+default = []
 
-# Whether publishing/consuming is enabled
-publish = []
-consume = ["async-trait", "either"]
-
-# Publishers
-google = ["base64", "yup-oauth2", "hyper", "http", "serde_json", "serde", "serde/derive", "uuid/serde"]
+# Backends
+google = ["ya-gcp", "tracing"]
+mock = ["async-channel"]
 
 # Validators
 json-schema = ["valico", "serde_json", "serde"]
 protobuf = ["prost"]
 
-# Convenience API
-sink = ["futures-util/sink", "either", "publish"]
-
 [[example]]
-name = "publish"
+name = "googlepubsub"
 required-features = ["google", "json-schema"]
 
 [dependencies]
+async-trait = { version = "0.1" }
 bytes = "1"
-futures-util = { version = "0.3", features = ["std"], default-features = false }
+either = { version = "1", features = ["use_std"], default-features = false }
+futures-util = { version = "0.3.17", features = ["std", "sink"], default-features = false }
 pin-project = "1"
 thiserror = { version = "1", default-features = false }
 url = { version = "2", default-features = false }
 uuid = { version = "^0.8", features = ["v4"], default-features = false }
 
-async-trait = { version = "0.1", optional = true }
-either = { version = "1", optional = true, features = ["use_std"], default-features = false }
+async-channel = { version = "1.6", optional = true }
 serde = { version = "^1.0", optional = true, default-features = false }
 serde_json = { version = "^1", features = ["std"], optional = true, default-features = false }
+ya-gcp = { version = "0.6", features = ["pubsub"], optional = true }
+prost = { version = "0.8", optional = true, features = ["std"], default-features = false }
+tracing = { version = "0.1.26", optional = true }
 valico = { version = "^3.2", optional = true, default-features = false }
-base64 = { version = "^0.13", optional = true, default-features = false }
-http = { version = "^0.2", optional = true, default-features = false }
-hyper = { version = "^0.14.4", optional = true, features = ["client", "stream"], default-features = false }
-yup-oauth2 = { version = "5.1", optional = true, features = ["hyper-rustls"], default-features = false }
-prost = { version = "0.7", optional = true, features = ["std"], default-features = false }
 
 [dev-dependencies]
-hyper-tls = "0.5.0"
-prost = { version = "0.7", features = ["std", "prost-derive"] }
+async-channel = { version = "1.6" }
+prost = { version = "0.8", features = ["std", "prost-derive"] }
 tokio = { version = "1", features = ["macros", "rt"] }
 serde = { version = "1", features = ["derive"] }
+ya-gcp = { version = "0.6", features = ["pubsub", "emulators"] }
+structopt = "0.3"
 
 [package.metadata.docs.rs]
 all-features = true
