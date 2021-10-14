@@ -144,6 +144,11 @@ impl GooglePubSubError {
             ResponseStatus(_, StatusCode::GATEWAY_TIMEOUT) => true,
             ResponseStatus(_, StatusCode::TOO_MANY_REQUESTS) => true,
             ResponseStatus(_, StatusCode::CONFLICT) => true,
+
+            // Google returns a 400 Invalid JSON error sometimes. Lets see if retrying eventually
+            // helps!
+            ResponseStatus(_, StatusCode::BAD_REQUEST) => true,
+
             ResponseStatus(_, code) => code.as_u16() == GOOGLE_STATUS_CODE_CANCELLED,
 
             // Unlikely to ever succeed.
@@ -292,6 +297,15 @@ where
             let src = serde_json::from_slice(&response_body_data)
                 .ok()
                 .map(|v: PubSubPublishFailResponseSchema| Arc::new(v.error.into()));
+
+            if parts.status == http::StatusCode::BAD_REQUEST {
+                // Probably an invalid json response. Lets save some data for investigation.
+                let a = std::fs::write("/tmp/hedwig-400.request", &batch.request_bs);
+                let b = std::fs::write("/tmp/hedwig-400.response", response_body_data.as_slice());
+                if a.is_err() || b.is_err() {
+                    eprintln!("could not write debug data: {:?} {:?}", a, b);
+                }
+            }
             return Err(GooglePubSubError::ResponseStatus(src, parts.status));
         }
         let response_json: PubSubPublishResponseSchema =
@@ -395,6 +409,7 @@ struct GoogleMessageSegmenter<'a, I> {
 
 struct SegmentationResult {
     request_body: hyper::Body,
+    request_bs: Vec<u8>,
     messages_in_body: usize,
 }
 
@@ -419,6 +434,7 @@ impl<'a, I> GoogleMessageSegmenter<'a, I> {
         let messages_in_body = std::mem::replace(&mut self.messages_in_body, 0);
         body_data.extend(API_BODY_SUFFIX);
         Some(SegmentationResult {
+            request_bs: body_data.clone(),
             request_body: hyper::Body::from(body_data),
             messages_in_body,
         })
