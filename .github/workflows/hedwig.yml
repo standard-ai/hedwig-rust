@@ -48,14 +48,14 @@ jobs:
           command: doc
           args: --all-features --manifest-path=Cargo.toml
         env:
-          RUSTDOCFLAGS: --cfg docsrs -Dmissing_docs -Dbroken_intra_doc_links
+          RUSTDOCFLAGS: --cfg docsrs -Dmissing_docs -Drustdoc::broken_intra_doc_links
 
   test:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        rust_toolchain: [nightly, stable, 1.49.0]
+        rust_toolchain: [nightly, stable, 1.53.0]
         os: [ubuntu-latest, windows-latest, macOS-latest]
     timeout-minutes: 20
     steps:

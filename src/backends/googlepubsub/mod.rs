@@ -43,14 +43,14 @@ macro_rules! match_fields {
         // nested cfg_attr prevents older compilers from parsing the new doc = EXPR syntax
         #[cfg_attr(docsrs, cfg_attr(docsrs,
             doc = "", // newline
-            doc = concat!("This is a more ergonomic wrapper over [`", match_fields!(@stringify_path $target), "`]")
+            doc = concat!("This is a more ergonomic wrapper over [`", stringify!($target), "`]")
         ))]
         #[cfg_attr(not(docsrs), allow(missing_docs))]
         pub struct $struct_name $(<$struct_generics>)? {
             $(
                 #[cfg_attr(docsrs, cfg_attr(docsrs, doc = concat!(
                     "See [`", stringify!($field_name), "`]",
-                    "(", match_fields!(@stringify_path $target::$field_name), ")"
+                    "(", stringify!($target), "::", stringify!($field_name), ")"
                 )))]
                 $(#[$field_attr])*
                 pub $field_name : $field_type,
@@ -72,13 +72,6 @@ macro_rules! match_fields {
                 };
             };
         }
-    };
-
-    // directly calling `stringify!` on a path will put spaces inbetween the :: separators, which
-    // then breaks doc linking.
-    // For whatever reason (expansion order maybe?), a macro indirection makes the path space-less
-    (@stringify_path $p:path) => {
-        stringify!($p)
     };
 }
 
