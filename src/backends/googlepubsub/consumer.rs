@@ -27,7 +27,7 @@ use super::{
 /// A PubSub subscription name.
 ///
 /// This will be used to internally construct the expected
-/// `projects/{project}/subscriptions/hedwig-{queue}-{subscription}` format for API calls
+/// `projects/{project}/subscriptions/hedwig-{queue}-{subscription_name}` format for API calls
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SubscriptionName<'s>(Cow<'s, str>);
 

@@ -16,6 +16,7 @@ use std::{
     task::{Context, Poll},
 };
 
+/// Errors originating from mock publisher and consumer operations
 #[derive(Debug, thiserror::Error)]
 #[error("{reason}")]
 pub struct Error {
