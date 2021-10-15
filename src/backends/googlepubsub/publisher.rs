@@ -13,11 +13,9 @@ use std::{
 use ya_gcp::pubsub;
 
 use super::{
-    retry_policy, Connect, DefaultConnector, MakeConnection, PubSubError, SinkError, StatusCodeSet,
-    TopicName, Uri,
+    retry_policy, BoxError, Connect, DefaultConnector, MakeConnection, PubSubError, SinkError,
+    StatusCodeSet, TopicName, Uri,
 };
-
-type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 /// A client through which PubSub publishing operations can be performed.
 ///
