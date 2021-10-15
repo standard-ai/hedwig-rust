@@ -80,7 +80,7 @@ where
     /// Create a new PubSub topic.
     ///
     /// See the GCP documentation on topics [here](https://cloud.google.com/pubsub/docs/admin)
-    pub async fn create_topic(&mut self, topic: TopicConfig) -> Result<(), PubSubError> {
+    pub async fn create_topic(&mut self, topic: TopicConfig<'_>) -> Result<(), PubSubError> {
         let topic = topic.into_topic(&self);
         self.client.create_topic(topic).await?;
 
@@ -90,7 +90,7 @@ where
     /// Delete an existing PubSub topic.
     ///
     /// See the GCP documentation on topics [here](https://cloud.google.com/pubsub/docs/admin)
-    pub async fn delete_topic(&mut self, topic: TopicName) -> Result<(), PubSubError> {
+    pub async fn delete_topic(&mut self, topic: TopicName<'_>) -> Result<(), PubSubError> {
         let topic = topic.into_project_topic_name(self.project()).into();
 
         self.client
@@ -177,8 +177,8 @@ match_fields! {
 
     /// Configuration describing a PubSub topic.
     #[derive(Debug, Clone)]
-    pub struct TopicConfig {
-        pub name: TopicName,
+    pub struct TopicConfig<'s> {
+        pub name: TopicName<'s>,
         pub labels: std::collections::HashMap<String, String>,
         pub message_storage_policy: Option<pubsub::api::MessageStoragePolicy>,
         pub kms_key_name: String,
@@ -190,7 +190,7 @@ match_fields! {
     }
 }
 
-impl TopicConfig {
+impl<'s> TopicConfig<'s> {
     fn into_topic<C>(self, client: &PublisherClient<C>) -> pubsub::api::Topic {
         pubsub::api::Topic {
             name: self.name.into_project_topic_name(client.project()).into(),
@@ -205,10 +205,10 @@ impl TopicConfig {
     }
 }
 
-impl Default for TopicConfig {
+impl<'s> Default for TopicConfig<'s> {
     fn default() -> Self {
         Self {
-            name: TopicName::new(""),
+            name: TopicName::new(String::new()),
             labels: std::collections::HashMap::new(),
             message_storage_policy: None,
             kms_key_name: String::new(),

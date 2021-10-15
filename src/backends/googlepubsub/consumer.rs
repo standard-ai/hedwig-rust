@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use futures_util::stream;
 use pin_project::pin_project;
 use std::{
+    borrow::Cow,
     fmt::Display,
     ops::Bound,
     pin::Pin,
@@ -28,11 +29,11 @@ use super::{
 /// This will be used to internally construct the expected
 /// `projects/{project}/subscriptions/hedwig-{queue}-{subscription}` format for API calls
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct SubscriptionName(String);
+pub struct SubscriptionName<'s>(Cow<'s, str>);
 
-impl SubscriptionName {
+impl<'s> SubscriptionName<'s> {
     /// Create a new `SubscriptionName`
-    pub fn new(name: impl Into<String>) -> Self {
+    pub fn new(name: impl Into<Cow<'s, str>>) -> Self {
         Self(name.into())
     }
 
@@ -94,7 +95,7 @@ where
     /// See the GCP documentation on subscriptions [here](https://cloud.google.com/pubsub/docs/subscriber)
     pub async fn create_subscription(
         &mut self,
-        config: SubscriptionConfig,
+        config: SubscriptionConfig<'_>,
     ) -> Result<(), PubSubError> {
         let subscription = SubscriptionConfig::into_subscription(config, &*self);
 
@@ -108,7 +109,7 @@ where
     /// See the GCP documentation on subscriptions [here](https://cloud.google.com/pubsub/docs/subscriber)
     pub async fn delete_subscription(
         &mut self,
-        subscription: SubscriptionName,
+        subscription: SubscriptionName<'_>,
     ) -> Result<(), PubSubError> {
         let subscription = subscription
             .into_project_subscription_name(self.project(), self.queue())
@@ -124,7 +125,7 @@ where
     /// Connect to PubSub and start streaming messages from the given subscription
     pub fn stream_subscription(
         &mut self,
-        subscription: SubscriptionName,
+        subscription: SubscriptionName<'_>,
         stream_config: StreamSubscriptionConfig,
     ) -> PubSubStream<C> {
         let subscription =
@@ -138,7 +139,7 @@ where
     /// not acknowledged the messages after the timestamp.
     pub async fn seek(
         &mut self,
-        subscription: SubscriptionName,
+        subscription: SubscriptionName<'_>,
         timestamp: pubsub::api::Timestamp,
     ) -> Result<(), PubSubError> {
         let request = pubsub::api::SeekRequest {
@@ -163,9 +164,9 @@ match_fields! {
     /// Configuration describing a PubSub subscription.
     // TODO incorporate standard_config
     #[derive(Debug, Clone)]
-    pub struct SubscriptionConfig {
-        pub name: SubscriptionName,
-        pub topic: TopicName,
+    pub struct SubscriptionConfig<'s> {
+        pub name: SubscriptionName<'s>,
+        pub topic: TopicName<'s>,
         pub ack_deadline_seconds: u16,
         pub retain_acked_messages: bool,
         pub message_retention_duration: Option<pubsub::api::Duration>,
@@ -183,7 +184,7 @@ match_fields! {
     }
 }
 
-impl SubscriptionConfig {
+impl<'s> SubscriptionConfig<'s> {
     fn into_subscription<C>(self, client: &ConsumerClient<C>) -> pubsub::api::Subscription {
         pubsub::api::Subscription {
             name: self
@@ -208,11 +209,11 @@ impl SubscriptionConfig {
 }
 
 // TODO replace with a builder?
-impl Default for SubscriptionConfig {
+impl<'s> Default for SubscriptionConfig<'s> {
     fn default() -> Self {
         Self {
-            name: SubscriptionName::new(""),
-            topic: TopicName::new(""),
+            name: SubscriptionName::new(String::new()),
+            topic: TopicName::new(String::new()),
             ack_deadline_seconds: 0,
             retain_acked_messages: false,
             message_retention_duration: None,

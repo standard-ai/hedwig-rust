@@ -2,7 +2,7 @@
 
 #![macro_use]
 
-use std::fmt::Display;
+use std::{borrow::Cow, fmt::Display};
 
 pub use ya_gcp::{
     grpc::StatusCodeSet,
@@ -25,7 +25,7 @@ macro_rules! match_fields {
         $target:path =>
 
         $(#[$struct_attr:meta])*
-        pub struct $struct_name:ident {
+        pub struct $struct_name:ident $(<$struct_generics:tt>)? {
             $(
                 $(#[$field_attr:meta])*
                 pub $field_name:ident : $field_type:ty,
@@ -46,7 +46,7 @@ macro_rules! match_fields {
             doc = concat!("This is a more ergonomic wrapper over [`", stringify!($target), "`]")
         ))]
         #[cfg_attr(not(docsrs), allow(missing_docs))]
-        pub struct $struct_name {
+        pub struct $struct_name $(<$struct_generics>)? {
             $(
                 #[cfg_attr(docsrs, cfg_attr(docsrs, doc = concat!(
                     "See [`", stringify!($field_name), "`]",
@@ -57,7 +57,7 @@ macro_rules! match_fields {
             )*
         }
 
-        impl $struct_name {
+        impl$(<$struct_generics>)? $struct_name $(<$struct_generics>)? {
             const _MATCH_CHECK: () = {
                 match None {
                     Some($target {
@@ -87,11 +87,11 @@ pub use publisher::*;
 /// This will be used to internally construct the expected
 /// `projects/{project}/topics/hedwig-{topic}` format for API calls
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TopicName(String);
+pub struct TopicName<'s>(Cow<'s, str>);
 
-impl TopicName {
+impl<'s> TopicName<'s> {
     /// Create a new `TopicName`
-    pub fn new(name: impl Into<String>) -> Self {
+    pub fn new(name: impl Into<Cow<'s, str>>) -> Self {
         Self(name.into())
     }
 
