@@ -75,6 +75,12 @@ impl MockPublisher {
     }
 }
 
+impl Default for MockPublisher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<M> crate::Publisher<M> for MockPublisher
 where
     M: crate::EncodableMessage,
@@ -87,10 +93,12 @@ where
     }
 }
 
+type Subscriptions = BTreeMap<MockSubscription, Channel<ValidatedMessage>>;
+
 /// The sink used by the `MockPublisher`
 #[derive(Debug, Clone)]
 pub struct MockSink {
-    topics: Arc<Mutex<BTreeMap<Topic, BTreeMap<MockSubscription, Channel<ValidatedMessage>>>>>,
+    topics: Arc<Mutex<BTreeMap<Topic, Subscriptions>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -115,7 +123,7 @@ impl sink::Sink<(Topic, ValidatedMessage)> for MockSink {
         // send the message to every subscription listening on the given topic
 
         // find the subscriptions for this topic
-        let subscriptions = topics.entry(topic).or_insert(BTreeMap::new());
+        let subscriptions = topics.entry(topic).or_insert_with(Subscriptions::new);
 
         // Send to every subscription that still has consumers. If a subscription's consumers are
         // all dropped, the channel will have been closed and should be removed from the list

@@ -16,6 +16,6 @@ impl From<&'static str> for Topic {
 
 impl AsRef<str> for Topic {
     fn as_ref(&self) -> &str {
-        &self.0
+        self.0
     }
 }

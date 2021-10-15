@@ -70,7 +70,6 @@ macro_rules! match_fields {
                     }) => {},
                     None => {}
                 };
-                ()
             };
         }
     }

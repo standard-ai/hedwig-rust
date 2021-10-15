@@ -79,7 +79,7 @@ where
     ///
     /// See the GCP documentation on topics [here](https://cloud.google.com/pubsub/docs/admin)
     pub async fn create_topic(&mut self, topic: TopicConfig<'_>) -> Result<(), PubSubError> {
-        let topic = topic.into_topic(&self);
+        let topic = topic.into_topic(self);
         self.client.create_topic(topic).await?;
 
         Ok(())
