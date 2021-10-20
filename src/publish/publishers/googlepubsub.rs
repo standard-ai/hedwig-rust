@@ -411,13 +411,17 @@ impl<'a, I> GoogleMessageSegmenter<'a, I> {
 
     fn take_batch(&mut self) -> Option<SegmentationResult> {
         debug_assert!(self.messages_in_body <= API_MSG_COUNT_LIMIT);
-        debug_assert!(self.body_data.len() <= API_DATA_LENGTH_LIMIT);
+        debug_assert!(self.body_data.len() + API_BODY_SUFFIX.len() <= API_DATA_LENGTH_LIMIT);
         if self.messages_in_body == 0 {
             return None;
         }
         let mut body_data = std::mem::replace(&mut self.body_data, Vec::from(API_BODY_PREFIX));
         let messages_in_body = std::mem::replace(&mut self.messages_in_body, 0);
         body_data.extend(API_BODY_SUFFIX);
+        // Quite an expensive check but worth it given that we do our own json nonsense to ensure
+        // we get quotas right...
+        debug_assert!(body_data.len() <= API_DATA_LENGTH_LIMIT);
+        debug_assert!(serde_json::from_slice::<serde_json::Value>(&body_data[..]).is_ok());
         Some(SegmentationResult {
             request_body: hyper::Body::from(body_data),
             messages_in_body,
@@ -519,7 +523,6 @@ impl<'a, 'v, I: Iterator<Item = &'v ValidatedMessage>> Iterator for GoogleMessag
             let message_fits_in_current = self.messages_in_body < API_MSG_COUNT_LIMIT;
             if !data_fits_in_current || !message_fits_in_current {
                 // We need a new batch.
-                self.body_data.extend(API_BODY_SUFFIX);
                 let batch = self.take_batch();
                 self.append_message_data(&msg_json);
                 debug_assert!(batch.is_some());
@@ -696,6 +699,28 @@ mod tests {
         ];
         test_segmenter(msgs).await;
     }
+
+    #[cfg(feature = "json-schema")]
+    #[tokio::test]
+    async fn regression_for_double_suffix() {
+        let validator = validators::JsonSchemaValidator::new(SCHEMA).unwrap();
+        let small_message = JsonUserCreatedMessage::new_valid(
+            String::from_utf8(vec![b'a'; 512]).unwrap()
+        );
+        let oversized_message = JsonUserCreatedMessage::new_valid(
+            String::from_utf8(vec![b'a'; (10 * 1024 * 1024 - 512) * 3 / 4]).unwrap(),
+        );
+        let msgs = vec![
+            small_message.encode(&validator).unwrap(),
+            oversized_message.encode(&validator).unwrap(),
+        ];
+        let mut segmenter = GoogleMessageSegmenter::new("", msgs.iter());
+        let body1 = hyper::body::to_bytes(segmenter.next().unwrap().unwrap().request_body).await.unwrap();
+        serde_json::from_slice::<serde_json::Value>(&body1[..]).unwrap();
+        let body2 = hyper::body::to_bytes(segmenter.next().unwrap().unwrap().request_body).await.unwrap();
+        serde_json::from_slice::<serde_json::Value>(&body2[..]).unwrap();
+    }
+
 
     #[cfg(feature = "json-schema")]
     #[test]
