@@ -704,9 +704,8 @@ mod tests {
     #[tokio::test]
     async fn regression_for_double_suffix() {
         let validator = validators::JsonSchemaValidator::new(SCHEMA).unwrap();
-        let small_message = JsonUserCreatedMessage::new_valid(
-            String::from_utf8(vec![b'a'; 512]).unwrap()
-        );
+        let small_message =
+            JsonUserCreatedMessage::new_valid(String::from_utf8(vec![b'a'; 512]).unwrap());
         let oversized_message = JsonUserCreatedMessage::new_valid(
             String::from_utf8(vec![b'a'; (10 * 1024 * 1024 - 512) * 3 / 4]).unwrap(),
         );
@@ -715,20 +714,22 @@ mod tests {
             oversized_message.encode(&validator).unwrap(),
         ];
         let mut segmenter = GoogleMessageSegmenter::new("", msgs.iter());
-        let body1 = hyper::body::to_bytes(segmenter.next().unwrap().unwrap().request_body).await.unwrap();
+        let body1 = hyper::body::to_bytes(segmenter.next().unwrap().unwrap().request_body)
+            .await
+            .unwrap();
         serde_json::from_slice::<serde_json::Value>(&body1[..]).unwrap();
-        let body2 = hyper::body::to_bytes(segmenter.next().unwrap().unwrap().request_body).await.unwrap();
+        let body2 = hyper::body::to_bytes(segmenter.next().unwrap().unwrap().request_body)
+            .await
+            .unwrap();
         serde_json::from_slice::<serde_json::Value>(&body2[..]).unwrap();
     }
-
 
     #[cfg(feature = "json-schema")]
     #[tokio::test]
     async fn ensure_request_limits() {
         let validator = validators::JsonSchemaValidator::new(SCHEMA).unwrap();
-        let small_message = JsonUserCreatedMessage::new_valid(
-            String::from_utf8(vec![b'a'; 512]).unwrap()
-        );
+        let small_message =
+            JsonUserCreatedMessage::new_valid(String::from_utf8(vec![b'a'; 512]).unwrap());
         for i in 1225..1227 {
             let oversized_message = JsonUserCreatedMessage::new_valid(
                 String::from_utf8(vec![b'a'; (10 * 1024 * 1024 - i) * 3 / 4]).unwrap(),
@@ -739,13 +740,14 @@ mod tests {
             ];
             let mut segmenter = GoogleMessageSegmenter::new("", msgs.iter());
             for segment in segmenter {
-                let body = hyper::body::to_bytes(segment.unwrap().request_body).await.unwrap();
+                let body = hyper::body::to_bytes(segment.unwrap().request_body)
+                    .await
+                    .unwrap();
                 assert!(body.len() < super::API_DATA_LENGTH_LIMIT);
                 serde_json::from_slice::<serde_json::Value>(&body[..]).unwrap();
             }
         }
     }
-
 
     #[cfg(feature = "json-schema")]
     #[test]

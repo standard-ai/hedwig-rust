@@ -1,7 +1,7 @@
 [package]
 name = "hedwig"
 # TODO: When bumping to next major version, make sure to clean up the MRV and lints we allow in CI.
-version = "4.1.0"
+version = "4.1.1"
 authors = [
     "Aniruddha Maru <aniruddhamaru@gmail.com>",
     "Simonas Kazlauskas <hedwig@kazlauskas.me>"

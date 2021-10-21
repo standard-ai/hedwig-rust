@@ -18,7 +18,10 @@ use std::{
 /// ## Message Decoding
 ///
 /// Messages pulled from the service are assumed to have been created by some
-#[cfg_attr(feature = "publish", doc = "[hedwig publisher](crate::publish::Publisher)")]
+#[cfg_attr(
+    feature = "publish",
+    doc = "[hedwig publisher](crate::publish::Publisher)"
+)]
 #[cfg_attr(not(feature = "publish"), doc = "hedwig publisher")]
 /// and therefore were validated against the included schema when publishing. It is the decoder's
 /// responsibility (when provided to functions like [`consume`](Consumer::consume)) to check this
@@ -67,8 +70,9 @@ pub trait Consumer {
     /// Create a stream of decoded messages from this consumer, using a decoder for the given
     /// [decodable](DecodableMessage) message type.
     fn consume<M>(self, decoder: M::Decoder) -> MessageStream<Self::Stream, M::Decoder, M>
-        where Self: Sized,
-              M: DecodableMessage,
+    where
+        Self: Sized,
+        M: DecodableMessage,
     {
         MessageStream {
             stream: self.stream(),
