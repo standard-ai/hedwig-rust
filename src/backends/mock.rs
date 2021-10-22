@@ -3,25 +3,41 @@
 //!
 //! See [`MockPublisher`] for an entry point to the mock system.
 
-use crate::{consumer::AcknowledgeableMessage, Topic, ValidatedMessage};
+use crate::{consumer::AcknowledgeableMessage, EncodableMessage, Topic, ValidatedMessage};
 use async_channel as mpmc;
 use futures_util::{
     sink,
     stream::{self, StreamExt},
 };
+use parking_lot::Mutex;
+use pin_project::pin_project;
 use std::{
     collections::BTreeMap,
+    error::Error as StdError,
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::Arc,
     task::{Context, Poll},
 };
 
 /// Errors originating from mock publisher and consumer operations
 #[derive(Debug, thiserror::Error)]
-#[error("{reason}")]
+#[error(transparent)]
 pub struct Error {
-    reason: String,
+    /// The underlying source of the error
+    pub cause: Box<dyn StdError>,
 }
+
+impl Error {
+    fn from<E>(from: E) -> Self
+    where
+        Box<dyn StdError>: From<E>,
+    {
+        Self { cause: from.into() }
+    }
+}
+
+type Topics = BTreeMap<Topic, Subscriptions>;
+type Subscriptions = BTreeMap<MockSubscription, Channel<ValidatedMessage>>;
 
 /// An in-memory publisher.
 ///
@@ -38,16 +54,14 @@ pub struct Error {
 /// consumer was created from a cloned instance.
 #[derive(Debug, Clone)]
 pub struct MockPublisher {
-    inner: MockSink,
+    topics: Arc<Mutex<Topics>>,
 }
 
 impl MockPublisher {
     /// Create a new `MockPublisher`
     pub fn new() -> Self {
         MockPublisher {
-            inner: MockSink {
-                topics: Arc::new(Mutex::new(BTreeMap::new())),
-            },
+            topics: Arc::new(Mutex::new(BTreeMap::new())),
         }
     }
 
@@ -58,7 +72,7 @@ impl MockPublisher {
         topic: impl Into<Topic>,
         subscription: impl Into<MockSubscription>,
     ) -> MockConsumer {
-        let mut topics = self.inner.topics.lock().expect("lock poisoned!");
+        let mut topics = self.topics.lock();
         let subscriptions = topics.entry(topic.into()).or_insert_with(BTreeMap::new);
 
         let channel = subscriptions
@@ -82,24 +96,37 @@ impl Default for MockPublisher {
     }
 }
 
-impl<M> crate::Publisher<M> for MockPublisher
+impl<M, S> crate::Publisher<M, S> for MockPublisher
 where
     M: crate::EncodableMessage,
+    M::Error: StdError + 'static,
+    S: sink::Sink<M>,
+    S::Error: StdError + 'static,
 {
     type PublishError = Error;
-    type PublishSink = crate::publisher::ValidatorSink<M, M::Validator, MockSink>;
+    type PublishSink = MockSink<M, S>;
 
-    fn publish_sink(self, validator: M::Validator) -> Self::PublishSink {
-        crate::publisher::validator_sink(validator, self.inner)
+    fn publish_sink_with_responses(
+        self,
+        validator: M::Validator,
+        response_sink: S,
+    ) -> Self::PublishSink {
+        MockSink {
+            topics: self.topics,
+            validator,
+            response_sink,
+        }
     }
 }
 
-type Subscriptions = BTreeMap<MockSubscription, Channel<ValidatedMessage>>;
-
 /// The sink used by the `MockPublisher`
-#[derive(Debug, Clone)]
-pub struct MockSink {
-    topics: Arc<Mutex<BTreeMap<Topic, Subscriptions>>>,
+#[pin_project]
+#[derive(Debug)]
+pub struct MockSink<M: EncodableMessage, S> {
+    topics: Arc<Mutex<Topics>>,
+    validator: M::Validator,
+    #[pin]
+    response_sink: S,
 }
 
 #[derive(Debug, Clone)]
@@ -108,47 +135,72 @@ struct Channel<T> {
     receiver: mpmc::Receiver<T>,
 }
 
-impl sink::Sink<(Topic, ValidatedMessage)> for MockSink {
+impl<M, S> sink::Sink<M> for MockSink<M, S>
+where
+    M: EncodableMessage,
+    M::Error: StdError + 'static,
+    S: sink::Sink<M>,
+    S::Error: StdError + 'static,
+{
     type Error = Error;
 
-    fn poll_ready(self: Pin<&mut Self>, _: &mut Context) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
+        self.project()
+            .response_sink
+            .poll_ready(cx)
+            .map_err(Error::from)
     }
 
-    fn start_send(
-        self: Pin<&mut Self>,
-        (topic, message): (Topic, ValidatedMessage),
-    ) -> Result<(), Self::Error> {
-        let mut topics = self.topics.lock().expect("lock poisoned!");
+    fn start_send(self: Pin<&mut Self>, message: M) -> Result<(), Self::Error> {
+        let this = self.project();
 
-        // send the message to every subscription listening on the given topic
+        let topic = message.topic();
+        let validated_message = message.encode(this.validator).map_err(Error::from)?;
 
-        // find the subscriptions for this topic
-        let subscriptions = topics.entry(topic).or_insert_with(Subscriptions::new);
+        // lock critical section
+        {
+            let mut topics = this.topics.lock();
 
-        // Send to every subscription that still has consumers. If a subscription's consumers are
-        // all dropped, the channel will have been closed and should be removed from the list
-        subscriptions.retain(|_subscription_name, channel| {
-            match channel.sender.try_send(message.clone()) {
-                // if successfully sent, retain the channel
-                Ok(()) => true,
-                // if the channel has disconnected due to drops, remove it from the list
-                Err(mpmc::TrySendError::Closed(_)) => false,
-                Err(mpmc::TrySendError::Full(_)) => {
-                    unreachable!("unbounded channel should never be full")
+            // send the message to every subscription listening on the given topic
+
+            // find the subscriptions for this topic
+            let subscriptions = topics.entry(topic).or_insert_with(Subscriptions::new);
+
+            // Send to every subscription that still has consumers. If a subscription's consumers are
+            // all dropped, the channel will have been closed and should be removed from the list
+            subscriptions.retain(|_subscription_name, channel| {
+                match channel.sender.try_send(validated_message.clone()) {
+                    // if successfully sent, retain the channel
+                    Ok(()) => true,
+                    // if the channel has disconnected due to drops, remove it from the list
+                    Err(mpmc::TrySendError::Closed(_)) => false,
+                    Err(mpmc::TrySendError::Full(_)) => {
+                        unreachable!("unbounded channel should never be full")
+                    }
                 }
-            }
-        });
+            });
+        }
+
+        // notify the caller that the message has been sent successfully
+        this.response_sink
+            .start_send(message)
+            .map_err(Error::from)?;
 
         Ok(())
     }
 
-    fn poll_flush(self: Pin<&mut Self>, _: &mut Context) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
+        self.project()
+            .response_sink
+            .poll_flush(cx)
+            .map_err(Error::from)
     }
 
-    fn poll_close(self: Pin<&mut Self>, _: &mut Context) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
+        self.project()
+            .response_sink
+            .poll_close(cx)
+            .map_err(Error::from)
     }
 }
 
@@ -232,7 +284,7 @@ impl crate::consumer::AcknowledgeToken for MockAckToken {
             .send(self.message)
             .await
             .map_err(|mpmc::SendError(_message)| Error {
-                reason: "Could not nack message because all consumers have been dropped".into(),
+                cause: "Could not nack message because all consumers have been dropped".into(),
             })
     }
 

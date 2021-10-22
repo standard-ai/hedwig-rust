@@ -1,9 +1,7 @@
 //! Types, traits, and functions necessary to publish messages using hedwig
 
 use crate::{Topic, ValidatedMessage};
-use either::Either;
 use futures_util::sink;
-use pin_project::pin_project;
 use std::{
     pin::Pin,
     task::{Context, Poll},
@@ -14,19 +12,37 @@ use std::{
 /// Message publishers validate, encode, and deliver messages to an endpoint, possibly a remote
 /// one. Message publishers may also additionally validate a message for publisher-specific
 /// requirements (e.g.  size).
-pub trait Publisher<M: EncodableMessage> {
+pub trait Publisher<M: EncodableMessage, S: sink::Sink<M> = Drain<M>> {
     /// The error type that may be encountered when publishing a message
     type PublishError;
     /// The [`Sink`](futures_util::sink::Sink) type provided by the publisher to accept messages,
     /// validate them, then publish them to the destination.
-    type PublishSink: sink::Sink<M, Error = Either<M::Error, Self::PublishError>>;
+    type PublishSink: sink::Sink<M, Error = Self::PublishError>;
 
     /// Create a new sink to accept messages.
     ///
     /// The sink will use the given validator to validate and/or encode messages, possibly batch
     /// them together, then publish them to their destination. The details of the internal encoding
     /// and batching may vary by `Publisher` implementation.
-    fn publish_sink(self, validator: M::Validator) -> Self::PublishSink;
+    fn publish_sink(self, validator: M::Validator) -> Self::PublishSink
+    where
+        Self: Sized,
+        S: Default,
+    {
+        self.publish_sink_with_responses(validator, S::default())
+    }
+
+    /// Create a new sink to accept messages.
+    ///
+    /// This creates a sink like [`publish_sink`](Publisher::publish_sink) while additionally
+    /// listening for successful responses; after a message has been successfully published, it
+    /// will be passed to the given response sink to complete any necessary work (e.g.
+    /// acknowledging success or collecting metrics)
+    fn publish_sink_with_responses(
+        self,
+        validator: M::Validator,
+        response_sink: S,
+    ) -> Self::PublishSink;
 }
 
 /// Types that can be encoded and published.
@@ -43,71 +59,32 @@ pub trait EncodableMessage {
     fn topic(&self) -> Topic;
 
     /// Encode the message payload.
-    fn encode(self, validator: &Self::Validator) -> Result<ValidatedMessage, Self::Error>;
+    fn encode(&self, validator: &Self::Validator) -> Result<ValidatedMessage, Self::Error>;
 }
 
-/// A sink which ingests messages, validates them with the given validator, then forwards them to
-/// the given destination sink.
-pub fn validator_sink<M, S>(
-    validator: M::Validator,
-    destination_sink: S,
-) -> ValidatorSink<M, M::Validator, S>
-where
-    M: EncodableMessage,
-    S: sink::Sink<(Topic, ValidatedMessage)>,
-{
-    ValidatorSink {
-        _message_type: std::marker::PhantomData,
-        validator,
-        sink: destination_sink,
+/// Like [`futures_util::sink::Drain`] but implements `Default`
+#[derive(Debug)]
+pub struct Drain<T>(std::marker::PhantomData<T>);
+
+impl<T> Default for Drain<T> {
+    fn default() -> Self {
+        Self(std::marker::PhantomData)
     }
 }
 
-/// The sink returned by the [`validator_sink`](validator_sink) function
-#[pin_project]
-pub struct ValidatorSink<M, V, S> {
-    _message_type: std::marker::PhantomData<M>,
-    validator: V,
-    #[pin]
-    sink: S,
-}
+impl<T> sink::Sink<T> for Drain<T> {
+    type Error = futures_util::never::Never;
 
-impl<M, S> sink::Sink<M> for ValidatorSink<M, M::Validator, S>
-where
-    M: EncodableMessage,
-    S: sink::Sink<(Topic, ValidatedMessage)>,
-{
-    type Error = Either<M::Error, S::Error>;
-
-    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.project()
-            .sink
-            .poll_ready(cx)
-            .map(|res| res.map_err(Either::Right))
+    fn poll_ready(self: Pin<&mut Self>, _: &mut Context) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
     }
-
-    fn start_send(self: Pin<&mut Self>, message: M) -> Result<(), Self::Error> {
-        let this = self.project();
-
-        let topic = message.topic();
-        let validated_message = message.encode(this.validator).map_err(Either::Left)?;
-
-        this.sink
-            .start_send((topic, validated_message))
-            .map_err(Either::Right)
+    fn start_send(self: Pin<&mut Self>, _: T) -> Result<(), Self::Error> {
+        Ok(())
     }
-
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.project()
-            .sink
-            .poll_flush(cx)
-            .map(|res| res.map_err(Either::Right))
+    fn poll_flush(self: Pin<&mut Self>, _: &mut Context) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
     }
-
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.project()
-            .sink
-            .poll_close(cx)
-            .map(|res| res.map_err(Either::Right))
+    fn poll_close(self: Pin<&mut Self>, _: &mut Context) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
     }
 }

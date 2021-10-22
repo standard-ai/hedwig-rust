@@ -1,5 +1,5 @@
 /// A message queue topic name to which messages can be published
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Topic(&'static str);
 
 impl std::fmt::Display for Topic {

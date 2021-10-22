@@ -23,8 +23,8 @@ maintenance = { status = "actively-developed" }
 default = []
 
 # Backends
-google = ["ya-gcp", "tracing"]
-mock = ["async-channel"]
+google = ["ya-gcp", "tracing", "parking_lot"]
+mock = ["async-channel", "parking_lot"]
 
 # Validators
 json-schema = ["valico", "serde_json", "serde"]
@@ -32,7 +32,7 @@ protobuf = ["prost"]
 
 [[example]]
 name = "googlepubsub"
-required-features = ["google", "json-schema"]
+required-features = ["google", "protobuf"]
 
 [dependencies]
 async-trait = { version = "0.1" }
@@ -47,17 +47,21 @@ uuid = { version = "^0.8", features = ["v4"], default-features = false }
 async-channel = { version = "1.6", optional = true }
 serde = { version = "^1.0", optional = true, default-features = false }
 serde_json = { version = "^1", features = ["std"], optional = true, default-features = false }
-ya-gcp = { version = "0.6", features = ["pubsub"], optional = true }
+parking_lot = { version = "0.11", optional = true }
 prost = { version = "0.8", optional = true, features = ["std"], default-features = false }
 tracing = { version = "0.1.26", optional = true }
 valico = { version = "^3.2", optional = true, default-features = false }
+ya-gcp = { version = "0.6.3", features = ["pubsub"], optional = true }
 
 [dev-dependencies]
 async-channel = { version = "1.6" }
+futures-channel = "0.3.17"
+parking_lot = { version = "0.11" }
 prost = { version = "0.8", features = ["std", "prost-derive"] }
 tokio = { version = "1", features = ["macros", "rt"] }
+tonic = "0.5"
 serde = { version = "1", features = ["derive"] }
-ya-gcp = { version = "0.6", features = ["pubsub", "emulators"] }
+ya-gcp = { version = "0.6.3", features = ["pubsub", "emulators"] }
 structopt = "0.3"
 
 [package.metadata.docs.rs]

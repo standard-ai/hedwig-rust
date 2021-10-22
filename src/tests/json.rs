@@ -1,8 +1,10 @@
 #![cfg(feature = "json-schema")]
 
 use crate::{
-    mock::MockPublisher, validators, validators::JsonSchemaValidatorError, Consumer,
-    DecodableMessage, EncodableMessage, Headers, Publisher, Topic, ValidatedMessage,
+    mock::{Error as MockError, MockPublisher},
+    validators,
+    validators::JsonSchemaValidatorError,
+    Consumer, DecodableMessage, EncodableMessage, Headers, Publisher, Topic, ValidatedMessage,
 };
 
 use futures_util::{sink::SinkExt, stream::StreamExt};
@@ -44,7 +46,7 @@ pub(crate) const SCHEMA: &str = r#"{
     }
 }"#;
 
-#[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct JsonUserCreatedMessage<I> {
     #[serde(skip)]
     pub(crate) uuid: uuid::Uuid,
@@ -69,14 +71,14 @@ impl JsonUserCreatedMessage<String> {
     }
 }
 
-impl<'a, I: serde::Serialize> EncodableMessage for &'a JsonUserCreatedMessage<I> {
+impl<'a, I: serde::Serialize> EncodableMessage for JsonUserCreatedMessage<I> {
     type Error = validators::JsonSchemaValidatorError;
     type Validator = validators::JsonSchemaValidator;
 
     fn topic(&self) -> Topic {
         "user.created".into()
     }
-    fn encode(self, validator: &Self::Validator) -> Result<ValidatedMessage, Self::Error> {
+    fn encode(&self, validator: &Self::Validator) -> Result<ValidatedMessage, Self::Error> {
         validator.validate(
             self.uuid,
             self.time,
@@ -92,7 +94,6 @@ impl DecodableMessage for JsonUserCreatedMessage<String> {
     type Decoder = ();
 
     fn decode(msg: ValidatedMessage, _: &()) -> Result<Self, Self::Error> {
-        println!("{:?}", String::from_utf8_lossy(msg.data()));
         Ok(JsonUserCreatedMessage {
             uuid: *msg.uuid(),
             headers: msg.headers().clone(),
@@ -116,6 +117,7 @@ async fn publish_messages() -> Result<(), Box<dyn std::error::Error>> {
         time: SystemTime::now(),
         headers: Headers::new(),
     };
+    let mut responses = Vec::new();
 
     // prepare a consumer to read any sent messages
     let mut consumer = publisher
@@ -123,32 +125,56 @@ async fn publish_messages() -> Result<(), Box<dyn std::error::Error>> {
         .consume::<JsonUserCreatedMessage<String>>(());
 
     // publishing the message with a u64 id should error on trying to send
-    let mut publish_sink = <MockPublisher as Publisher<&JsonUserCreatedMessage<u64>>>::publish_sink(
+    let mut publish_sink = <MockPublisher as Publisher<JsonUserCreatedMessage<u64>>>::publish_sink(
         publisher.clone(),
         crate::validators::JsonSchemaValidator::new(SCHEMA).unwrap(),
     );
     assert!(matches!(
-        publish_sink.send(&message_invalid).await,
-        Err(either::Either::Left(
-            JsonSchemaValidatorError::ValidateData { .. }
-        ))
+        publish_sink
+            .send(message_invalid)
+            .await
+            .map_err(|MockError { cause }| cause
+                .downcast::<JsonSchemaValidatorError>()
+                .map(|boxed| *boxed)),
+        Err(Ok(JsonSchemaValidatorError::ValidateData { .. }))
     ));
 
     // publishing the type with string ids should work
     let mut publish_sink =
-        <MockPublisher as Publisher<&JsonUserCreatedMessage<String>>>::publish_sink(
+        <MockPublisher as Publisher<JsonUserCreatedMessage<String>, _>>::publish_sink_with_responses(
             publisher.clone(),
             crate::validators::JsonSchemaValidator::new(SCHEMA).unwrap(),
+            &mut responses,
         );
 
-    assert!(publish_sink.send(&message_one).await.is_ok());
-    assert!(publish_sink.send(&message_two).await.is_ok());
-    assert!(publish_sink.send(&message_three).await.is_ok());
+    assert!(publish_sink.send(message_one.clone()).await.is_ok());
+    assert!(publish_sink.send(message_two.clone()).await.is_ok());
+    assert!(publish_sink.send(message_three.clone()).await.is_ok());
 
+    // if the sink uses buffering, the user should be informed of successful publishes in the
+    // response sink.
+    assert_eq!(
+        vec![
+            message_one.clone(),
+            message_two.clone(),
+            message_three.clone()
+        ],
+        responses
+    );
+
+    // Now actually read from the consumer.
     // The ordering doesn't necessarily need to be preserved, but for the purpose of this test we
     // know that `MockPublisher` does.
     assert_eq!(
         message_one,
+        consumer.next().await.unwrap().unwrap().ack().await.unwrap()
+    );
+    assert_eq!(
+        message_two,
+        consumer.next().await.unwrap().unwrap().ack().await.unwrap()
+    );
+    assert_eq!(
+        message_three,
         consumer.next().await.unwrap().unwrap().ack().await.unwrap()
     );
 
@@ -158,7 +184,7 @@ async fn publish_messages() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn publish_sink_is_send() {
     let publisher = MockPublisher::new();
-    let sink = <MockPublisher as Publisher<&JsonUserCreatedMessage<String>>>::publish_sink(
+    let sink = <MockPublisher as Publisher<JsonUserCreatedMessage<String>>>::publish_sink(
         publisher,
         crate::validators::JsonSchemaValidator::new(SCHEMA).unwrap(),
     );

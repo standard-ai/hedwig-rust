@@ -7,8 +7,9 @@ use std::{borrow::Cow, fmt::Display};
 pub use ya_gcp::{
     grpc::StatusCodeSet,
     pubsub::{
-        AcknowledgeError, BuildError, Error as PubSubError, MakeConnection, ModifyAcknowledgeError,
-        PubSubConfig, SinkError, StreamSubscriptionConfig, Uri, DEFAULT_RETRY_CODES,
+        AcknowledgeError, AcknowledgeToken, BuildError, Error as PubSubError, MakeConnection,
+        ModifyAcknowledgeError, PubSubConfig, SinkError, StreamSubscriptionConfig, Uri,
+        DEFAULT_RETRY_CODES,
     },
     retry_policy, AuthFlow, ClientBuilderConfig, Connect, CreateBuilderError, DefaultConnector,
     ServiceAccountAuth,

@@ -31,13 +31,13 @@
 //!     fn topic(&self) -> hedwig::Topic {
 //!         "user.created".into()
 //!     }
-//!     fn encode(self, validator: &Self::Validator) -> Result<hedwig::ValidatedMessage, Self::Error> {
+//!     fn encode(&self, validator: &Self::Validator) -> Result<hedwig::ValidatedMessage, Self::Error> {
 //!         Ok(validator.validate(
 //!             uuid::Uuid::new_v4(),
 //!             SystemTime::now(),
 //!             "user.created/1.0",
 //!             Default::default(),
-//!             &self,
+//!             self,
 //!         )?)
 //!     }
 //! }
@@ -58,7 +58,7 @@
 //! let consumer = /* Consumer associated to that publisher */
 //! # publisher.new_consumer("user.created", "example_subscription");
 //!
-//! let mut publish_sink = publisher.publish_sink(validators::ProstValidator::new());
+//! let mut publish_sink = Publisher::<UserCreatedMessage>::publish_sink(publisher, validators::ProstValidator::new());
 //! let mut consumer_stream = consumer.consume::<UserCreatedMessage>(
 //!     validators::ProstDecoder::new(validators::prost::ExactSchemaMatcher::new("user.created/1.0")),
 //! );
