@@ -124,9 +124,14 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            PublishError::Publish { cause, .. } => fmt::Display::fmt(cause, f),
-            PublishError::Response(cause) => fmt::Display::fmt(cause, f),
-            PublishError::InvalidMessage { cause, .. } => fmt::Display::fmt(cause, f),
+            PublishError::Publish { messages, .. } => f.write_fmt(format_args!(
+                "could not publish {} messages",
+                messages.len()
+            )),
+            PublishError::Response(..) => f.write_str(
+                "could not forward response for a successfully published message to the sink",
+            ),
+            PublishError::InvalidMessage { .. } => f.write_str("could not validate message"),
         }
     }
 }

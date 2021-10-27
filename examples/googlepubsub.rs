@@ -4,9 +4,9 @@
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
 use hedwig::{
     googlepubsub::{
-        AcknowledgeToken, AuthFlow, ClientBuilder, ClientBuilderConfig, PubSubConfig,
-        PubSubMessage, PublishError, ServiceAccountAuth, StreamSubscriptionConfig,
-        SubscriptionConfig, SubscriptionName, TopicConfig, TopicName,
+        AuthFlow, ClientBuilder, ClientBuilderConfig, PubSubConfig, PubSubMessage, PublishError,
+        ServiceAccountAuth, StreamSubscriptionConfig, SubscriptionConfig, SubscriptionName,
+        TopicConfig, TopicName,
     },
     validators, Consumer, DecodableMessage, EncodableMessage, Headers, Publisher,
 };
@@ -63,13 +63,10 @@ struct UserUpdatedMessage {
     metadata: String,
 }
 
+/// The output message will carry an ack token from the input message, to ack when the output is
+/// successfully published, or nack on failure
 #[derive(Debug)]
-struct TransformedMessage {
-    // keep the input's ack token to ack when the output is successfully published, or nack on
-    // failure
-    input_token: AcknowledgeToken,
-    output: UserUpdatedMessage,
-}
+struct TransformedMessage(PubSubMessage<UserUpdatedMessage>);
 
 impl EncodableMessage for TransformedMessage {
     type Error = validators::ProstValidatorError;
@@ -85,7 +82,7 @@ impl EncodableMessage for TransformedMessage {
             SystemTime::now(),
             "user.updated/1.0",
             Headers::new(),
-            &self.output,
+            &self.0.message,
         )?)
     }
 }
@@ -177,7 +174,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
         validators::ProstValidator::new(),
         futures_util::sink::unfold((), |_, message: TransformedMessage| async move {
             // if the output is successfully sent, ack the input to mark it as processed
-            message.input_token.ack().await
+            message.0.ack().await.map(|_success| ())
         }),
     );
 
@@ -189,14 +186,14 @@ async fn main() -> Result<(), Box<dyn StdError>> {
 
         assert_eq!(&message.name, &format!("Example Name #{}", i));
 
-        let transformed = TransformedMessage {
-            output: UserUpdatedMessage {
+        let transformed = TransformedMessage(PubSubMessage {
+            ack_token,
+            message: UserUpdatedMessage {
                 name: message.name,
                 id: random_id(),
                 metadata: "some metadata".into(),
             },
-            input_token: ack_token,
-        };
+        });
 
         output_sink
             .feed(transformed)
@@ -205,7 +202,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
                 Err(match publish_error {
                     PublishError::Publish { cause, messages } => {
                         for failed_transform in messages {
-                            failed_transform.input_token.nack().await?;
+                            failed_transform.0.nack().await?;
                         }
                         Box::<dyn StdError>::from(cause)
                     }
