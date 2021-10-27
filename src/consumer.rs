@@ -17,15 +17,10 @@ use std::{
 ///
 /// ## Message Decoding
 ///
-/// Messages pulled from the service are assumed to have been created by some
-#[cfg_attr(
-    feature = "publish",
-    doc = "[hedwig publisher](crate::publish::Publisher)"
-)]
-#[cfg_attr(not(feature = "publish"), doc = "hedwig publisher")]
-/// and therefore were validated against the included schema when publishing. It is the decoder's
-/// responsibility (when provided to functions like [`consume`](Consumer::consume)) to check this
-/// schema and the accompanying payload for validity.
+/// Messages pulled from the service are assumed to have been created by some [hedwig
+/// publisher](crate::Publisher) and therefore were validated against the included schema
+/// when publishing. It is the decoder's responsibility (when provided to functions like
+/// [`consume`](Consumer::consume)) to check this schema and the accompanying payload for validity.
 ///
 /// ## Acknowledging Messages
 /// Typically message services deliver messages with a particular delivery time window, during
@@ -43,7 +38,6 @@ use std::{
 /// this functionality to users with the [`AcknowledgeableMessage`] type. Message processors are
 /// responsible for handling message acknowledgement, including extensions for processing time as
 /// necessary.
-// If we had async drop, sending nacks on drop would be nice. Alas, rust isn't there yet
 ///
 /// Bear in mind that message delivery and acknowledgement are all best-effort in distributed
 /// message services. An acknowledged or extended message may still be re-delivered for any number
@@ -51,6 +45,7 @@ use std::{
 ///
 /// [AWS]: https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html
 /// [GCP]: https://cloud.google.com/pubsub/docs/subscriber
+// If we had async drop, sending nacks on drop would be nice. Alas, rust isn't there yet
 pub trait Consumer {
     /// The type of acknowledgement tokens produced by the underlying service implementation
     type AckToken: AcknowledgeToken;
