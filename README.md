@@ -32,7 +32,7 @@ validators, like this:
 
 ```toml
 [dependencies]
-hedwig = { version = "4", features = ["google"] }
+hedwig = { version = "5", features = ["google"] }
 ```
 
 ### Usage
