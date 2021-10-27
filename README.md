@@ -24,7 +24,7 @@ Add to Cargo.toml:
 
 ```toml
 [dependencies]
-hedwig = "4"
+hedwig = "5"
 ```
 
 You may also need to enable additional features in order to use the optional publishers or
