@@ -82,7 +82,7 @@ impl JsonSchemaValidator {
             url::Url::parse(&wildcard_url)
                 .map_err(|e| JsonSchemaValidatorError::SchemaUrlParse(e, wildcard_url))?
         } else {
-            url::Url::parse(&schema)
+            url::Url::parse(schema)
                 .map_err(|e| JsonSchemaValidatorError::SchemaUrlParse(e, schema.into()))?
         };
         let msg_schema = self
@@ -110,7 +110,7 @@ impl JsonSchemaValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{publish::EncodableMessage, tests::*};
+    use crate::{tests::json::*, EncodableMessage};
     use uuid::Uuid;
 
     #[test]
@@ -192,7 +192,7 @@ mod tests {
 
     #[test]
     fn errors_send_sync() {
-        assert_error::<JsonSchemaValidatorError>();
+        crate::tests::assert_error::<JsonSchemaValidatorError>();
     }
 
     #[test]

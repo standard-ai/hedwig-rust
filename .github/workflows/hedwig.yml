@@ -12,11 +12,9 @@ on:
 
 jobs:
   lint:
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macOS-latest]
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v2
@@ -31,7 +29,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: -- -Dclippy::correctness -Dclippy::complexity -Dclippy::perf -Dunsafe_code -Dunreachable_pub -Dunused
+          args: --all-features -- -Dclippy::correctness -Dclippy::complexity -Dclippy::perf -Dunsafe_code -Dunreachable_pub -Dunused
 
   doc:
     runs-on: ubuntu-latest
@@ -50,14 +48,14 @@ jobs:
           command: doc
           args: --all-features --manifest-path=Cargo.toml
         env:
-          RUSTDOCFLAGS: --cfg docsrs -Dmissing_docs -Dbroken_intra_doc_links
+          RUSTDOCFLAGS: --cfg docsrs -Dmissing_docs -Drustdoc::broken_intra_doc_links
 
   test:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        rust_toolchain: [nightly, stable, 1.49.0]
+        rust_toolchain: [nightly, stable, 1.53.0]
         os: [ubuntu-latest, windows-latest, macOS-latest]
     timeout-minutes: 20
     steps:

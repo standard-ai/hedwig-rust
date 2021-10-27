@@ -1,5 +1,5 @@
 /// A message queue topic name to which messages can be published
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Topic(&'static str);
 
 impl std::fmt::Display for Topic {
@@ -14,8 +14,8 @@ impl From<&'static str> for Topic {
     }
 }
 
-impl From<Topic> for &'static str {
-    fn from(s: Topic) -> &'static str {
-        s.0
+impl AsRef<str> for Topic {
+    fn as_ref(&self) -> &str {
+        self.0
     }
 }
