@@ -21,7 +21,7 @@ use ya_gcp::pubsub;
 
 use super::{
     retry_policy, AcknowledgeError, BoxError, Connect, DefaultConnector, MakeConnection,
-    ModifyAcknowledgeError, PubSubError, StatusCodeSet, StreamSubscriptionConfig, TopicName, Uri,
+    ModifyAcknowledgeError, PubSubError, StreamSubscriptionConfig, TopicName, Uri,
 };
 
 /// A PubSub subscription name.
@@ -288,9 +288,10 @@ impl crate::consumer::AcknowledgeToken for pubsub::AcknowledgeToken {
 /// Created by [`ConsumerClient::stream_subscription`]
 #[pin_project]
 #[cfg_attr(docsrs, doc(cfg(feature = "google")))]
-pub struct PubSubStream<C = DefaultConnector, R = retry_policy::ExponentialBackoff<StatusCodeSet>>(
-    #[pin] pubsub::StreamSubscription<C, R>,
-);
+pub struct PubSubStream<
+    C = DefaultConnector,
+    R = retry_policy::ExponentialBackoff<pubsub::PubSubRetryCheck>,
+>(#[pin] pubsub::StreamSubscription<C, R>);
 
 impl<C, OldR> PubSubStream<C, OldR> {
     /// Set the [`RetryPolicy`](retry_policy::RetryPolicy) to use for this streaming subscription.

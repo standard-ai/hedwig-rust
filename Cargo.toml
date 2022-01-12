@@ -1,6 +1,6 @@
 [package]
 name = "hedwig"
-version = "5.0.0"
+version = "6.0.0"
 authors = [
     "Aniruddha Maru <aniruddhamaru@gmail.com>",
     "Simonas Kazlauskas <hedwig@kazlauskas.me>",
@@ -47,20 +47,20 @@ async-channel = { version = "1.6", optional = true }
 serde = { version = "^1.0", optional = true, default-features = false }
 serde_json = { version = "^1", features = ["std"], optional = true, default-features = false }
 parking_lot = { version = "0.11", optional = true }
-prost = { version = "0.8", optional = true, features = ["std"], default-features = false }
+prost = { version = "0.9", optional = true, features = ["std"], default-features = false }
 tracing = { version = "0.1.26", optional = true }
 valico = { version = "^3.2", optional = true, default-features = false }
-ya-gcp = { version = "0.6.3", features = ["pubsub"], optional = true }
+ya-gcp = { version = "0.7.2", features = ["pubsub"], optional = true }
 
 [dev-dependencies]
 async-channel = { version = "1.6" }
 futures-channel = "0.3.17"
 parking_lot = { version = "0.11" }
-prost = { version = "0.8", features = ["std", "prost-derive"] }
+prost = { version = "0.9", features = ["std", "prost-derive"] }
 tokio = { version = "1", features = ["macros", "rt"] }
-tonic = "0.5"
+tonic = "0.6"
 serde = { version = "1", features = ["derive"] }
-ya-gcp = { version = "0.6.3", features = ["pubsub", "emulators"] }
+ya-gcp = { version = "0.7", features = ["pubsub", "emulators"] }
 structopt = "0.3"
 
 [package.metadata.docs.rs]

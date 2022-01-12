@@ -19,8 +19,7 @@ use super::{
         exponential_backoff::Config as ExponentialBackoffConfig, ExponentialBackoff,
         RetryOperation, RetryPolicy,
     },
-    BoxError, Connect, DefaultConnector, MakeConnection, PubSubError, StatusCodeSet, TopicName,
-    Uri,
+    BoxError, Connect, DefaultConnector, MakeConnection, PubSubError, TopicName, Uri,
 };
 
 use message_translate::{TopicSink, TopicSinkError};
@@ -199,7 +198,7 @@ where
         Publisher {
             client: self.clone(),
             retry_policy: ExponentialBackoff::new(
-                pubsub::DEFAULT_RETRY_CODES,
+                pubsub::PubSubRetryCheck::default(),
                 ExponentialBackoffConfig::default(),
             ),
         }
@@ -214,7 +213,7 @@ where
 }
 
 /// A publisher for sending messages to PubSub topics
-pub struct Publisher<C, R = ExponentialBackoff<StatusCodeSet>> {
+pub struct Publisher<C, R = ExponentialBackoff<pubsub::PubSubRetryCheck>> {
     client: PublisherClient<C>,
     retry_policy: R,
 }

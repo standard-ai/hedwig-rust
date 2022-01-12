@@ -5,11 +5,12 @@
 use std::{borrow::Cow, fmt::Display};
 
 pub use ya_gcp::{
+    self as gcp,
     grpc::StatusCodeSet,
     pubsub::{
         AcknowledgeError, AcknowledgeToken, BuildError, Error as PubSubError, MakeConnection,
-        ModifyAcknowledgeError, PubSubConfig, SinkError, StreamSubscriptionConfig, Uri,
-        DEFAULT_RETRY_CODES,
+        ModifyAcknowledgeError, PubSubConfig, PubSubRetryCheck, SinkError,
+        StreamSubscriptionConfig, Uri,
     },
     retry_policy, AuthFlow, ClientBuilderConfig, Connect, CreateBuilderError, DefaultConnector,
     ServiceAccountAuth,
