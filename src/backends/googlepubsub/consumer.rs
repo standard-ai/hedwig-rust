@@ -309,12 +309,15 @@ impl<C, OldR> PubSubStream<C, OldR> {
     }
 }
 
-impl<C> stream::Stream for PubSubStream<C>
+impl<C, R> stream::Stream for PubSubStream<C, R>
 where
     C: MakeConnection<Uri> + Connect + Clone + Send + Sync + 'static,
     C::Connection: Unpin + Send + 'static,
     C::Future: Send + 'static,
     BoxError: From<C::Error>,
+    R: retry_policy::RetryPolicy<(), PubSubError> + Send + 'static,
+    R::RetryOp: Send + 'static,
+    <R::RetryOp as retry_policy::RetryOperation<(), PubSubError>>::Sleep: Send + 'static,
 {
     type Item = Result<PubSubMessage<ValidatedMessage>, PubSubStreamError>;
 
@@ -331,16 +334,19 @@ where
     }
 }
 
-impl<C> crate::consumer::Consumer for PubSubStream<C>
+impl<C, R> crate::consumer::Consumer for PubSubStream<C, R>
 where
     C: MakeConnection<Uri> + Connect + Clone + Send + Sync + 'static,
     C::Connection: Unpin + Send + 'static,
     C::Future: Send + 'static,
     BoxError: From<C::Error>,
+    R: retry_policy::RetryPolicy<(), PubSubError> + Send + 'static,
+    R::RetryOp: Send + 'static,
+    <R::RetryOp as retry_policy::RetryOperation<(), PubSubError>>::Sleep: Send + 'static,
 {
     type AckToken = pubsub::AcknowledgeToken;
     type Error = PubSubStreamError;
-    type Stream = PubSubStream<C>;
+    type Stream = PubSubStream<C, R>;
 
     fn stream(self) -> Self::Stream {
         self
