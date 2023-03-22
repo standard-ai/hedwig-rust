@@ -33,14 +33,18 @@ pub struct SubscriptionName<'s>(Cow<'s, str>);
 
 impl<'s> SubscriptionName<'s> {
     /// Create a new `SubscriptionName`
-    pub fn new(name: impl Into<Cow<'s, str>>) -> Self {
-        Self(name.into())
+    pub fn new(subscription: impl Into<Cow<'s, str>>) -> Self {
+        Self(subscription.into())
     }
 
     /// Create a new `SubscriptionName` for a cross-project subscription, i.e. a subscription that subscribes to a topic
     /// from another project.
-    pub fn new_cross_project(project: impl Into<Cow<'s, str>>, name: impl Into<Cow<'s, str>>) -> Self {
-        Self(std::format_args!("{project}-{queue}", project.into(), name.into()))
+    pub fn with_cross_project(
+        project: impl Into<Cow<'s, str>>,
+        subscription: impl Into<Cow<'s, str>>,
+    ) -> Self {
+        // the cross-project is effectively part of a compound subscription name
+        Self(format!("{}-{}", project.into(), subscription.into()).into())
     }
 
     /// Construct a full project and subscription name with this name
@@ -606,5 +610,18 @@ mod test {
         .unwrap();
 
         assert_eq!(&user_attrs, validated_message.headers());
+    }
+
+    #[test]
+    fn project_subscription_name() {
+        let subscription_name =
+            SubscriptionName::with_cross_project("other_project", "my_subscription");
+
+        assert_eq!(
+            String::from(
+                subscription_name.into_project_subscription_name("my_project", "some_queue")
+            ),
+            "projects/my_project/subscriptions/hedwig-some_queue-other_project-my_subscription"
+        );
     }
 }
