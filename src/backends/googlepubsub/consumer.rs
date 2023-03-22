@@ -37,6 +37,12 @@ impl<'s> SubscriptionName<'s> {
         Self(name.into())
     }
 
+    /// Create a new `SubscriptionName` for a cross-project subscription, i.e. a subscription that subscribes to a topic
+    /// from another project.
+    pub fn new_cross_project(project: impl Into<Cow<'s, str>>, name: impl Into<Cow<'s, str>>) -> Self {
+        Self(std::format_args!("{project}-{queue}", project.into(), name.into()))
+    }
+
     /// Construct a full project and subscription name with this name
     fn into_project_subscription_name(
         self,
