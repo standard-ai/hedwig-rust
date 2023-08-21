@@ -91,6 +91,29 @@ impl<C> ConsumerClient<C> {
     fn queue(&self) -> &str {
         &self.queue
     }
+
+    /// Construct a fully formatted project and subscription name for the given subscription
+    pub fn format_subscription(
+        &self,
+        subscription: SubscriptionName<'_>,
+    ) -> pubsub::ProjectSubscriptionName {
+        subscription.into_project_subscription_name(self.project(), self.queue())
+    }
+
+    /// Construct a fully formatted project and topic name for the given topic
+    pub fn format_topic(&self, topic: TopicName<'_>) -> pubsub::ProjectTopicName {
+        topic.into_project_topic_name(self.project())
+    }
+
+    /// Get a reference to the underlying pubsub client
+    pub fn inner(&self) -> &pubsub::SubscriberClient<C> {
+        &self.client
+    }
+
+    /// Get a mutable reference to the underlying pubsub client
+    pub fn inner_mut(&mut self) -> &mut pubsub::SubscriberClient<C> {
+        &mut self.client
+    }
 }
 
 impl<C> ConsumerClient<C>
@@ -121,9 +144,7 @@ where
         &mut self,
         subscription: SubscriptionName<'_>,
     ) -> Result<(), PubSubError> {
-        let subscription = subscription
-            .into_project_subscription_name(self.project(), self.queue())
-            .into();
+        let subscription = self.format_subscription(subscription).into();
 
         self.client
             .delete_subscription(pubsub::api::DeleteSubscriptionRequest { subscription })
@@ -138,8 +159,7 @@ where
         subscription: SubscriptionName<'_>,
         stream_config: StreamSubscriptionConfig,
     ) -> PubSubStream<C> {
-        let subscription =
-            subscription.into_project_subscription_name(self.project(), self.queue());
+        let subscription = self.format_subscription(subscription);
 
         PubSubStream(self.client.stream_subscription(subscription, stream_config))
     }
@@ -153,9 +173,7 @@ where
         timestamp: pubsub::api::Timestamp,
     ) -> Result<(), PubSubError> {
         let request = pubsub::api::SeekRequest {
-            subscription: subscription
-                .into_project_subscription_name(self.project(), self.queue())
-                .into(),
+            subscription: self.format_subscription(subscription).into(),
             target: Some(pubsub::api::seek_request::Target::Time(timestamp)),
         };
         self.client.seek(request).await?;
@@ -197,11 +215,8 @@ match_fields! {
 impl<'s> SubscriptionConfig<'s> {
     fn into_subscription<C>(self, client: &ConsumerClient<C>) -> pubsub::api::Subscription {
         pubsub::api::Subscription {
-            name: self
-                .name
-                .into_project_subscription_name(client.project(), client.queue())
-                .into(),
-            topic: self.topic.into_project_topic_name(client.project()).into(),
+            name: client.format_subscription(self.name).into(),
+            topic: client.format_topic(self.topic).into(),
             ack_deadline_seconds: self.ack_deadline_seconds.into(),
             retain_acked_messages: self.retain_acked_messages,
             message_retention_duration: self.message_retention_duration,
