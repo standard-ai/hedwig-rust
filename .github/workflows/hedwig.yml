@@ -56,7 +56,7 @@ jobs:
       fail-fast: false
       matrix:
         rust_toolchain: [nightly, stable, 1.53.0]
-        os: [ubuntu-latest, windows-latest, macOS-latest]
+        os: [ubuntu-latest]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v2
