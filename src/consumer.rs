@@ -2,15 +2,18 @@
 //!
 //! See the [`Consumer`] trait.
 
-use crate::ValidatedMessage;
+use crate::{Headers, ValidatedMessage};
 use async_trait::async_trait;
 use either::Either;
 use futures_util::stream;
 use pin_project::pin_project;
 use std::{
+    borrow::Cow,
     pin::Pin,
     task::{Context, Poll},
+    time::SystemTime,
 };
+use uuid::Uuid;
 
 /// Message consumers ingest messages from a queue service and present them to the user application
 /// as a [`Stream`](futures_util::stream::Stream).
@@ -89,6 +92,92 @@ pub trait DecodableMessage {
     fn decode(msg: ValidatedMessage, decoder: &Self::Decoder) -> Result<Self, Self::Error>
     where
         Self: Sized;
+}
+
+#[derive(Debug, Clone)]
+pub struct DecodedMessage<M> {
+    /// Unique message identifier.
+    id: Uuid,
+    /// The timestamp when message was created in the publishing service.
+    timestamp: SystemTime,
+    /// URI of the schema validating this message.
+    ///
+    /// E.g. `https://hedwig.domain.xyz/schemas#/schemas/user.created/1.0`
+    schema: Cow<'static, str>,
+    /// Custom message headers.
+    ///
+    /// This may be used to track request_id, for example.
+    headers: Headers,
+
+    /// The contents of the decoded message.
+    message: M,
+}
+
+impl<M> DecodedMessage<M> {
+    /// Unique message identifier.
+    pub fn uuid(&self) -> &Uuid {
+        &self.id
+    }
+
+    /// The timestamp when message was created in the publishing service.
+    pub fn timestamp(&self) -> &SystemTime {
+        &self.timestamp
+    }
+
+    /// URI of the schema validating this message.
+    ///
+    /// E.g. `https://hedwig.domain.xyz/schemas#/schemas/user.created/1.0`
+    pub fn schema(&self) -> &str {
+        &self.schema
+    }
+
+    /// Custom message headers.
+    ///
+    /// This may be used to track request_id, for example.
+    pub fn headers(&self) -> &Headers {
+        &self.headers
+    }
+
+    /// Mutable access to the message headers
+    pub fn headers_mut(&mut self) -> &mut Headers {
+        &mut self.headers
+    }
+
+    /// The encoded message data.
+    pub fn message(&self) -> &M {
+        &self.message
+    }
+
+    /// Destructure this message into just the contained data
+    pub fn into_message(self) -> M {
+        self.message
+    }
+}
+
+impl<M> DecodableMessage for DecodedMessage<M>
+where
+    M: DecodableMessage,
+{
+    /// The error returned when a message fails to decode
+    type Error = M::Error;
+
+    /// The decoder used to decode a validated message
+    type Decoder = M::Decoder;
+
+    /// Decode the given message, using the given decoder, into its structured type
+    fn decode(msg: ValidatedMessage, decoder: &Self::Decoder) -> Result<Self, Self::Error>
+    where
+        Self: Sized,
+    {
+        let message = M::decode(msg.clone(), decoder)?;
+        Ok(DecodedMessage {
+            id: msg.id,
+            timestamp: msg.timestamp,
+            schema: msg.schema,
+            headers: msg.headers,
+            message: message,
+        })
+    }
 }
 
 /// A received message which can be acknowledged to prevent re-delivery by the backing message

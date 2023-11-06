@@ -42,7 +42,7 @@ impl EncodableMessage for TestMessage {
             uuid::Uuid::nil(),
             std::time::SystemTime::UNIX_EPOCH,
             SCHEMA,
-            Headers::default(),
+            Headers::from([(String::from("key"), String::from("value"))]),
             self,
         )
     }
@@ -55,6 +55,26 @@ impl DecodableMessage for TestMessage {
     fn decode(msg: ValidatedMessage, validator: &Self::Decoder) -> Result<Self, Self::Error> {
         validator.decode(msg)
     }
+}
+
+#[test]
+fn decode_with_headers() -> Result<(), BoxError> {
+    let orig_message = TestMessage {
+        payload: "foobar".into(),
+    };
+
+    let encoded = orig_message.encode(&ProstValidator::new())?;
+
+    let decoded = crate::DecodedMessage::<TestMessage>::decode(
+        encoded,
+        &ProstDecoder::new(ExactSchemaMatcher::new(SCHEMA)),
+    )?;
+
+    let headers = Headers::from([(String::from("key"), String::from("value"))]);
+
+    assert_eq!(decoded.headers(), &headers);
+
+    Ok(())
 }
 
 #[tokio::test]
