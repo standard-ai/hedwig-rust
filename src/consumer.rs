@@ -2,18 +2,16 @@
 //!
 //! See the [`Consumer`] trait.
 
-use crate::{Headers, ValidatedMessage};
+use crate::message::ValidatedMessage;
 use async_trait::async_trait;
+use bytes::Bytes;
 use either::Either;
 use futures_util::stream;
 use pin_project::pin_project;
 use std::{
-    borrow::Cow,
     pin::Pin,
     task::{Context, Poll},
-    time::SystemTime,
 };
-use uuid::Uuid;
 
 /// Message consumers ingest messages from a queue service and present them to the user application
 /// as a [`Stream`](futures_util::stream::Stream).
@@ -56,7 +54,7 @@ pub trait Consumer {
     type Error;
     /// The stream returned by [`stream`]
     type Stream: stream::Stream<
-        Item = Result<AcknowledgeableMessage<Self::AckToken, ValidatedMessage>, Self::Error>,
+        Item = Result<AcknowledgeableMessage<Self::AckToken, ValidatedMessage<Bytes>>, Self::Error>,
     >;
 
     /// Begin pulling messages from the backing message service.
@@ -89,72 +87,12 @@ pub trait DecodableMessage {
     type Decoder;
 
     /// Decode the given message, using the given decoder, into its structured type
-    fn decode(msg: ValidatedMessage, decoder: &Self::Decoder) -> Result<Self, Self::Error>
+    fn decode(msg: ValidatedMessage<Bytes>, decoder: &Self::Decoder) -> Result<Self, Self::Error>
     where
         Self: Sized;
 }
 
-#[derive(Debug, Clone)]
-pub struct DecodedMessage<M> {
-    /// Unique message identifier.
-    id: Uuid,
-    /// The timestamp when message was created in the publishing service.
-    timestamp: SystemTime,
-    /// URI of the schema validating this message.
-    ///
-    /// E.g. `https://hedwig.domain.xyz/schemas#/schemas/user.created/1.0`
-    schema: Cow<'static, str>,
-    /// Custom message headers.
-    ///
-    /// This may be used to track request_id, for example.
-    headers: Headers,
-
-    /// The contents of the decoded message.
-    message: M,
-}
-
-impl<M> DecodedMessage<M> {
-    /// Unique message identifier.
-    pub fn uuid(&self) -> &Uuid {
-        &self.id
-    }
-
-    /// The timestamp when message was created in the publishing service.
-    pub fn timestamp(&self) -> &SystemTime {
-        &self.timestamp
-    }
-
-    /// URI of the schema validating this message.
-    ///
-    /// E.g. `https://hedwig.domain.xyz/schemas#/schemas/user.created/1.0`
-    pub fn schema(&self) -> &str {
-        &self.schema
-    }
-
-    /// Custom message headers.
-    ///
-    /// This may be used to track request_id, for example.
-    pub fn headers(&self) -> &Headers {
-        &self.headers
-    }
-
-    /// Mutable access to the message headers
-    pub fn headers_mut(&mut self) -> &mut Headers {
-        &mut self.headers
-    }
-
-    /// The encoded message data.
-    pub fn message(&self) -> &M {
-        &self.message
-    }
-
-    /// Destructure this message into just the contained data
-    pub fn into_message(self) -> M {
-        self.message
-    }
-}
-
-impl<M> DecodableMessage for DecodedMessage<M>
+impl<M> DecodableMessage for ValidatedMessage<M>
 where
     M: DecodableMessage,
 {
@@ -165,17 +103,17 @@ where
     type Decoder = M::Decoder;
 
     /// Decode the given message, using the given decoder, into its structured type
-    fn decode(msg: ValidatedMessage, decoder: &Self::Decoder) -> Result<Self, Self::Error>
+    fn decode(msg: ValidatedMessage<Bytes>, decoder: &Self::Decoder) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
         let message = M::decode(msg.clone(), decoder)?;
-        Ok(DecodedMessage {
+        Ok(Self {
             id: msg.id,
             timestamp: msg.timestamp,
             schema: msg.schema,
             headers: msg.headers,
-            message: message,
+            data: message,
         })
     }
 }
@@ -275,7 +213,7 @@ pub struct MessageStream<S, D, M> {
 impl<S, D, M, AckToken, StreamError> stream::Stream for MessageStream<S, D, M>
 where
     S: stream::Stream<
-        Item = Result<AcknowledgeableMessage<AckToken, ValidatedMessage>, StreamError>,
+        Item = Result<AcknowledgeableMessage<AckToken, ValidatedMessage<Bytes>>, StreamError>,
     >,
     M: DecodableMessage<Decoder = D>,
 {

@@ -7,6 +7,7 @@ use crate::{
         AuthFlow, ClientBuilder, ClientBuilderConfig, PubSubConfig, PubSubError, PublishError,
         StreamSubscriptionConfig, SubscriptionConfig, SubscriptionName, TopicConfig, TopicName,
     },
+    message,
     validators::{
         prost::{ExactSchemaMatcher, SchemaMismatchError},
         ProstDecodeError, ProstDecoder, ProstValidator, ProstValidatorError,
@@ -65,7 +66,7 @@ fn decode_with_headers() -> Result<(), BoxError> {
 
     let encoded = orig_message.encode(&ProstValidator::new())?;
 
-    let decoded = crate::DecodedMessage::<TestMessage>::decode(
+    let decoded = message::ValidatedMessage::<TestMessage>::decode(
         encoded,
         &ProstDecoder::new(ExactSchemaMatcher::new(SCHEMA)),
     )?;
