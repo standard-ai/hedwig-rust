@@ -46,7 +46,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: doc
-          args: --all-features --manifest-path=Cargo.toml
+          args: --all-features --manifest-path=Cargo.toml --no-deps
         env:
           RUSTDOCFLAGS: --cfg docsrs -Dmissing_docs -Drustdoc::broken_intra_doc_links
 
