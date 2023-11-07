@@ -75,14 +75,14 @@
 //! ```
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-use std::{borrow::Cow, collections::BTreeMap, time::SystemTime};
 pub use topic::Topic;
 
 use bytes::Bytes;
-use uuid::Uuid;
+use std::collections::BTreeMap;
 
 mod backends;
 mod consumer;
+pub mod message;
 mod publisher;
 mod tests;
 mod topic;
@@ -117,81 +117,4 @@ pub enum Error {
 pub type Headers = BTreeMap<String, String>;
 
 /// A validated message.
-///
-/// These are created by validators after encoding a user message, or when pulling messages from
-/// the message service.
-#[derive(Debug, Clone)]
-// derive Eq only in tests so that users can't foot-shoot an expensive == over data
-#[cfg_attr(test, derive(PartialEq, Eq))]
-pub struct ValidatedMessage {
-    /// Unique message identifier.
-    id: Uuid,
-    /// The timestamp when message was created in the publishing service.
-    timestamp: SystemTime,
-    /// URI of the schema validating this message.
-    ///
-    /// E.g. `https://hedwig.domain.xyz/schemas#/schemas/user.created/1.0`
-    schema: Cow<'static, str>,
-    /// Custom message headers.
-    ///
-    /// This may be used to track request_id, for example.
-    headers: Headers,
-    /// The encoded message data.
-    data: Bytes,
-}
-
-impl ValidatedMessage {
-    /// Create a new validated message
-    pub fn new<S, D>(id: Uuid, timestamp: SystemTime, schema: S, headers: Headers, data: D) -> Self
-    where
-        S: Into<Cow<'static, str>>,
-        D: Into<Bytes>,
-    {
-        Self {
-            id,
-            timestamp,
-            schema: schema.into(),
-            headers,
-            data: data.into(),
-        }
-    }
-
-    /// Unique message identifier.
-    pub fn uuid(&self) -> &Uuid {
-        &self.id
-    }
-
-    /// The timestamp when message was created in the publishing service.
-    pub fn timestamp(&self) -> &SystemTime {
-        &self.timestamp
-    }
-
-    /// URI of the schema validating this message.
-    ///
-    /// E.g. `https://hedwig.domain.xyz/schemas#/schemas/user.created/1.0`
-    pub fn schema(&self) -> &str {
-        &self.schema
-    }
-
-    /// Custom message headers.
-    ///
-    /// This may be used to track request_id, for example.
-    pub fn headers(&self) -> &Headers {
-        &self.headers
-    }
-
-    /// Mutable access to the message headers
-    pub fn headers_mut(&mut self) -> &mut Headers {
-        &mut self.headers
-    }
-
-    /// The encoded message data.
-    pub fn data(&self) -> &[u8] {
-        &self.data
-    }
-
-    /// Destructure this message into just the contained data
-    pub fn into_data(self) -> Bytes {
-        self.data
-    }
-}
+pub type ValidatedMessage = message::ValidatedMessage<Bytes>;

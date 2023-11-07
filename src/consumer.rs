@@ -2,8 +2,9 @@
 //!
 //! See the [`Consumer`] trait.
 
-use crate::ValidatedMessage;
+use crate::message::ValidatedMessage;
 use async_trait::async_trait;
+use bytes::Bytes;
 use either::Either;
 use futures_util::stream;
 use pin_project::pin_project;
@@ -53,7 +54,7 @@ pub trait Consumer {
     type Error;
     /// The stream returned by [`stream`]
     type Stream: stream::Stream<
-        Item = Result<AcknowledgeableMessage<Self::AckToken, ValidatedMessage>, Self::Error>,
+        Item = Result<AcknowledgeableMessage<Self::AckToken, ValidatedMessage<Bytes>>, Self::Error>,
     >;
 
     /// Begin pulling messages from the backing message service.
@@ -86,9 +87,35 @@ pub trait DecodableMessage {
     type Decoder;
 
     /// Decode the given message, using the given decoder, into its structured type
-    fn decode(msg: ValidatedMessage, decoder: &Self::Decoder) -> Result<Self, Self::Error>
+    fn decode(msg: ValidatedMessage<Bytes>, decoder: &Self::Decoder) -> Result<Self, Self::Error>
     where
         Self: Sized;
+}
+
+impl<M> DecodableMessage for ValidatedMessage<M>
+where
+    M: DecodableMessage,
+{
+    /// The error returned when a message fails to decode
+    type Error = M::Error;
+
+    /// The decoder used to decode a validated message
+    type Decoder = M::Decoder;
+
+    /// Decode the given message, using the given decoder, into its structured type
+    fn decode(msg: ValidatedMessage<Bytes>, decoder: &Self::Decoder) -> Result<Self, Self::Error>
+    where
+        Self: Sized,
+    {
+        let message = M::decode(msg.clone(), decoder)?;
+        Ok(Self {
+            id: msg.id,
+            timestamp: msg.timestamp,
+            schema: msg.schema,
+            headers: msg.headers,
+            data: message,
+        })
+    }
 }
 
 /// A received message which can be acknowledged to prevent re-delivery by the backing message
@@ -186,7 +213,7 @@ pub struct MessageStream<S, D, M> {
 impl<S, D, M, AckToken, StreamError> stream::Stream for MessageStream<S, D, M>
 where
     S: stream::Stream<
-        Item = Result<AcknowledgeableMessage<AckToken, ValidatedMessage>, StreamError>,
+        Item = Result<AcknowledgeableMessage<AckToken, ValidatedMessage<Bytes>>, StreamError>,
     >,
     M: DecodableMessage<Decoder = D>,
 {
