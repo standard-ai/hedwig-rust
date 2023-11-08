@@ -374,16 +374,21 @@ where
                 let sink = {
                     let retry_policy = this.retry_policy;
                     let response_sink = this.response_sink;
-                    this.topic_sinks.entry(topic.clone()).or_insert_with(|| {
-                        Box::pin(TopicSink::new(
-                            client.client.publish_topic_sink(
-                                TopicName::new(topic.as_ref())
-                                    .into_project_topic_name(client.project()),
+
+                    // avoid cloning the topic if the key exists
+                    match this.topic_sinks.get_mut(&topic) {
+                        Some(existing) => existing,
+                        None => this.topic_sinks.entry(topic.clone()).or_insert(Box::pin(
+                            TopicSink::new(
+                                client.client.publish_topic_sink(
+                                    TopicName::new(topic.as_ref())
+                                        .into_project_topic_name(client.project()),
+                                ),
+                                retry_policy.clone(),
+                                Shared::clone(response_sink),
                             ),
-                            retry_policy.clone(),
-                            Shared::clone(response_sink),
-                        ))
-                    })
+                        )),
+                    }
                 };
 
                 // poll the sink to see if it's ready
