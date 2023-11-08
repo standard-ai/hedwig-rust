@@ -1,3 +1,5 @@
+//! Message related types
+
 use bytes::Bytes;
 use std::{borrow::Cow, time::SystemTime};
 use uuid::Uuid;

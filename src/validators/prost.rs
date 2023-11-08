@@ -1,4 +1,4 @@
-//! Validation and decoding for messages encoded with protobuf using [`prost`](::prost)
+//! Validation and decoding for messages encoded with protobuf using [`prost`]
 //!
 //! ```
 //! use hedwig::validators::prost::{ProstValidator, ProstDecoder, ExactSchemaMatcher};
