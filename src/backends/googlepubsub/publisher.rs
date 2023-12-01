@@ -431,7 +431,7 @@ where
                                 client.client.publish_topic_sink(
                                     TopicName::new(topic.as_ref())
                                         .into_project_topic_name(client.project()),
-                                    this.publish_config.clone(),
+                                    *this.publish_config,
                                 ),
                                 retry_policy.clone(),
                                 Shared::clone(response_sink),
