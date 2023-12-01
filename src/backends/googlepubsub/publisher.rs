@@ -6,20 +6,22 @@ use futures_util::{
 use pin_project::pin_project;
 use std::{
     collections::{BTreeMap, VecDeque},
-    error::Error as StdError,
     fmt,
     pin::Pin,
     task::{Context, Poll},
     time::SystemTime,
 };
-use ya_gcp::pubsub;
+use ya_gcp::{
+    grpc::{Body, BoxBody, Bytes, DefaultGrpcImpl, GrpcService, StdError},
+    pubsub,
+};
 
 use super::{
     retry_policy::{
         exponential_backoff::Config as ExponentialBackoffConfig, ExponentialBackoff,
         RetryOperation, RetryPolicy,
     },
-    BoxError, Connect, DefaultConnector, MakeConnection, PubSubError, TopicName, Uri,
+    PubSubError, TopicName,
 };
 
 use message_translate::{TopicSink, TopicSinkError};
@@ -62,14 +64,18 @@ impl<T> Clone for Shared<T> {
 /// This includes managing topics and writing data to topics. Created using
 /// [`build_publisher`](super::ClientBuilder::build_publisher)
 #[derive(Debug, Clone)]
-pub struct PublisherClient<C = DefaultConnector> {
+pub struct PublisherClient<C = DefaultGrpcImpl> {
     client: pubsub::PublisherClient<C>,
     project: String,
     identifier: String,
 }
 
 impl<C> PublisherClient<C> {
-    pub(super) fn new(
+    /// Create a new publisher from an existing pubsub client.
+    ///
+    /// This function is useful for client customization; most callers should typically use the
+    /// defaults provided by [`build_publisher`](super::ClientBuilder::build_publisher)
+    pub fn from_client(
         client: pubsub::PublisherClient<C>,
         project: String,
         identifier: String,
@@ -87,6 +93,21 @@ impl<C> PublisherClient<C> {
 
     fn identifier(&self) -> &str {
         &self.identifier
+    }
+
+    /// Construct a fully formatted project and topic name for the given topic
+    pub fn format_topic(&self, topic: TopicName<'_>) -> pubsub::ProjectTopicName {
+        topic.into_project_topic_name(self.project())
+    }
+
+    /// Get a reference to the underlying pubsub client
+    pub fn inner(&self) -> &pubsub::PublisherClient<C> {
+        &self.client
+    }
+
+    /// Get a mutable reference to the underlying pubsub client
+    pub fn inner_mut(&mut self) -> &mut pubsub::PublisherClient<C> {
+        &mut self.client
     }
 }
 
@@ -135,13 +156,13 @@ where
     }
 }
 
-impl<M: EncodableMessage, E> StdError for PublishError<M, E>
+impl<M: EncodableMessage, E> std::error::Error for PublishError<M, E>
 where
     M: fmt::Debug,
-    M::Error: StdError + 'static,
-    E: StdError + 'static,
+    M::Error: std::error::Error + 'static,
+    E: std::error::Error + 'static,
 {
-    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             PublishError::Publish { cause, .. } => Some(cause as &_),
             PublishError::Response(cause) => Some(cause as &_),
@@ -161,17 +182,17 @@ impl<M: EncodableMessage, E> From<TopicSinkError<M, E>> for PublishError<M, E> {
 
 impl<C> PublisherClient<C>
 where
-    C: MakeConnection<Uri> + ya_gcp::Connect + Clone + Send + Sync + 'static,
-    C::Connection: Unpin + Send + 'static,
-    C::Future: Send + 'static,
-    BoxError: From<C::Error>,
+    C: GrpcService<BoxBody>,
+    C::Error: Into<StdError>,
+    C::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <C::ResponseBody as Body>::Error: Into<StdError> + Send,
 {
     /// Create a new PubSub topic.
     ///
     /// See the GCP documentation on topics [here](https://cloud.google.com/pubsub/docs/admin)
     pub async fn create_topic(&mut self, topic: TopicConfig<'_>) -> Result<(), PubSubError> {
         let topic = topic.into_topic(self);
-        self.client.create_topic(topic).await?;
+        self.client.raw_api_mut().create_topic(topic).await?;
 
         Ok(())
     }
@@ -183,7 +204,12 @@ where
         let topic = topic.into_project_topic_name(self.project()).into();
 
         self.client
-            .delete_topic(pubsub::api::DeleteTopicRequest { topic })
+            .raw_api_mut()
+            .delete_topic({
+                let mut r = pubsub::api::DeleteTopicRequest::default();
+                r.topic = topic;
+                r
+            })
             .await?;
 
         Ok(())
@@ -194,13 +220,17 @@ where
     /// Multiple publishers can be created using the same client, for example to use different
     /// validators. They may share some underlying resources for greater efficiency than creating
     /// multiple clients.
-    pub fn publisher(&self) -> Publisher<C> {
+    pub fn publisher(&self) -> Publisher<C>
+    where
+        C: Clone,
+    {
         Publisher {
             client: self.clone(),
             retry_policy: ExponentialBackoff::new(
                 pubsub::PubSubRetryCheck::default(),
                 ExponentialBackoffConfig::default(),
             ),
+            publish_config: pubsub::PublishConfig::default(),
         }
     }
 
@@ -213,9 +243,10 @@ where
 }
 
 /// A publisher for sending messages to PubSub topics
-pub struct Publisher<C, R = ExponentialBackoff<pubsub::PubSubRetryCheck>> {
+pub struct Publisher<C = DefaultGrpcImpl, R = ExponentialBackoff<pubsub::PubSubRetryCheck>> {
     client: PublisherClient<C>,
     retry_policy: R,
+    publish_config: pubsub::PublishConfig,
 }
 
 impl<C, OldR> Publisher<C, OldR> {
@@ -231,13 +262,26 @@ impl<C, OldR> Publisher<C, OldR> {
         Publisher {
             retry_policy,
             client: self.client,
+            publish_config: self.publish_config,
+        }
+    }
+
+    /// Set the publishing configuration for this `Publisher`.
+    pub fn with_config(self, publish_config: pubsub::PublishConfig) -> Self {
+        Self {
+            publish_config,
+            ..self
         }
     }
 }
 
 impl<C, M, S, R> crate::publisher::Publisher<M, S> for Publisher<C, R>
 where
-    C: Connect + Clone + Send + Sync + 'static,
+    C: GrpcService<BoxBody> + Clone + Send + 'static,
+    C::Future: Send + 'static,
+    C::Error: Into<StdError>,
+    C::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <C::ResponseBody as Body>::Error: Into<StdError> + Send,
     M: EncodableMessage + Send + 'static,
     S: Sink<M> + Send + 'static,
     R: RetryPolicy<[M], PubSubError> + Clone + 'static,
@@ -259,6 +303,7 @@ where
             client: self.client,
             retry_policy: self.retry_policy,
             response_sink: Shared::new(Box::pin(response_sink)),
+            publish_config: self.publish_config,
             _p: std::marker::PhantomPinned,
         }
     }
@@ -284,16 +329,13 @@ match_fields! {
 
 impl<'s> TopicConfig<'s> {
     fn into_topic<C>(self, client: &PublisherClient<C>) -> pubsub::api::Topic {
-        pubsub::api::Topic {
-            name: self.name.into_project_topic_name(client.project()).into(),
-            labels: self.labels,
-            message_storage_policy: self.message_storage_policy,
-            kms_key_name: self.kms_key_name,
-            message_retention_duration: self.message_retention_duration,
-
-            schema_settings: None, // documented as experimental, and hedwig enforces schemas anyway
-            satisfies_pzs: false,  // documented as reserved (currently unused)
-        }
+        let mut t = pubsub::api::Topic::default();
+        t.name = self.name.into_project_topic_name(client.project()).into();
+        t.labels = self.labels;
+        t.message_storage_policy = self.message_storage_policy;
+        t.kms_key_name = self.kms_key_name;
+        t.message_retention_duration = self.message_retention_duration;
+        t
     }
 }
 
@@ -347,13 +389,19 @@ pub struct PublishSink<C, M: EncodableMessage, S: Sink<M>, R> {
     // fine due to the outer pinning
     response_sink: Shared<Pin<Box<S>>>,
 
+    publish_config: pubsub::PublishConfig,
+
     // enable future !Unpin without breaking changes
     _p: std::marker::PhantomPinned,
 }
 
 impl<C, M, S, R> Sink<M> for PublishSink<C, M, S, R>
 where
-    C: Connect + Clone + Send + Sync + 'static,
+    C: GrpcService<BoxBody> + Clone + Send + 'static,
+    C::Future: Send + 'static,
+    C::Error: Into<StdError>,
+    C::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <C::ResponseBody as Body>::Error: Into<StdError> + Send,
     M: EncodableMessage + Send + 'static,
     S: Sink<M> + Send + 'static,
     R: RetryPolicy<[M], PubSubError> + Clone + 'static,
@@ -383,6 +431,7 @@ where
                                 client.client.publish_topic_sink(
                                     TopicName::new(topic.as_ref())
                                         .into_project_topic_name(client.project()),
+                                    *this.publish_config,
                                 ),
                                 retry_policy.clone(),
                                 Shared::clone(response_sink),
@@ -507,11 +556,11 @@ fn hedwig_to_pubsub(
     attributes.insert(crate::HEDWIG_PUBLISHER.into(), publisher_id.into());
     attributes.insert(crate::HEDWIG_FORMAT_VERSION.into(), "1.0".into());
 
-    Ok(pubsub::api::PubsubMessage {
-        data: msg.into_data(),
-        attributes,
-        ..pubsub::api::PubsubMessage::default()
-    })
+    let mut m = pubsub::api::PubsubMessage::default();
+    m.data = msg.into_data();
+    m.attributes = attributes;
+
+    Ok(m)
 }
 
 /// Translation mechanisms for converting between user messages and api messages.
@@ -674,7 +723,11 @@ mod message_translate {
 
     impl<C, M, S: Sink<M>, R> Sink<(M, pubsub::api::PubsubMessage)> for TopicSink<C, M, S, R>
     where
-        C: Connect + Clone + Send + Sync + 'static,
+        C: GrpcService<BoxBody> + Clone + Send + 'static,
+        C::Future: Send + 'static,
+        C::Error: Into<StdError>,
+        C::ResponseBody: Body<Data = Bytes> + Send + 'static,
+        <C::ResponseBody as Body>::Error: Into<StdError> + Send,
         R: RetryPolicy<[M], PubSubError> + 'static,
         R::RetryOp: Send + 'static,
         <R::RetryOp as RetryOperation<[M], PubSubError>>::Sleep: Send + 'static,

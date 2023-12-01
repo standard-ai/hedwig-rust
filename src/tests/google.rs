@@ -19,7 +19,7 @@ use std::{
     sync::mpsc,
     task::{Context, Poll},
 };
-use ya_gcp::pubsub::emulator::EmulatorClient;
+use ya_gcp::pubsub::emulator::Emulator;
 
 const SCHEMA: &str = "test-schema";
 const TOPIC: &str = "test-topic";
@@ -85,7 +85,7 @@ async fn roundtrip_protobuf() -> Result<(), BoxError> {
     let topic_name = TopicName::new(TOPIC);
     let subscription_name = SubscriptionName::new("test-subscription");
 
-    let emulator = EmulatorClient::with_project(project_name).await?;
+    let emulator = Emulator::new().project(project_name).await?;
 
     let client_builder = ClientBuilder::new(
         ClientBuilderConfig::new().auth_flow(AuthFlow::NoAuth),
@@ -148,7 +148,7 @@ async fn response_sink_responses() -> Result<(), BoxError> {
     let topic_name = TopicName::new(TOPIC);
     let subscription_name = SubscriptionName::new("test-subscription");
 
-    let emulator = EmulatorClient::with_project(project_name).await?;
+    let emulator = Emulator::new().project(project_name).await?;
 
     let client_builder = ClientBuilder::new(
         ClientBuilderConfig::new().auth_flow(AuthFlow::NoAuth),
@@ -357,7 +357,7 @@ async fn retry_message_translate() -> Result<(), BoxError> {
     let project_name = "roundtrip-test-project";
     let topic_name = TopicName::new(TOPIC);
 
-    let emulator = EmulatorClient::with_project(project_name).await?;
+    let emulator = Emulator::new().project(project_name).await?;
 
     let client_builder = ClientBuilder::new(
         ClientBuilderConfig::new().auth_flow(AuthFlow::NoAuth),
