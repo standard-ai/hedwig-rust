@@ -8,12 +8,11 @@ pub use ya_gcp::{
     self as gcp,
     grpc::StatusCodeSet,
     pubsub::{
-        AcknowledgeError, AcknowledgeToken, BuildError, Error as PubSubError, MakeConnection,
+        AcknowledgeError, AcknowledgeToken, BuildError, Error as PubSubError,
         ModifyAcknowledgeError, PubSubConfig, PubSubRetryCheck, SinkError,
         StreamSubscriptionConfig, Uri,
     },
-    retry_policy, AuthFlow, ClientBuilderConfig, Connect, CreateBuilderError, DefaultConnector,
-    ServiceAccountAuth,
+    retry_policy, AuthFlow, ClientBuilderConfig, CreateBuilderError, ServiceAccountAuth,
 };
 
 type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
@@ -69,6 +68,7 @@ macro_rules! match_fields {
                         $(
                             $target_except_field: _,
                         )*
+                        ..
                     }) => {},
                     None => {}
                 };
@@ -112,8 +112,8 @@ impl<'s> TopicName<'s> {
 ///
 /// Note that the builder is not consumed when creating clients, and many clients can be built
 /// using the same builder. This may allow some resource re-use across the clients
-pub struct ClientBuilder<C = DefaultConnector> {
-    inner: ya_gcp::ClientBuilder<C>,
+pub struct ClientBuilder {
+    inner: ya_gcp::ClientBuilder,
     pubsub_config: PubSubConfig,
 }
 
@@ -131,38 +131,15 @@ impl ClientBuilder {
     }
 }
 
-impl<C> ClientBuilder<C>
-where
-    C: Connect + Clone + Send + Sync + 'static,
-{
-    /// Create a new client builder with the given connector.
-    pub async fn with_connector(
-        config: ClientBuilderConfig,
-        pubsub_config: PubSubConfig,
-        connector: C,
-    ) -> Result<Self, CreateBuilderError> {
-        Ok(ClientBuilder {
-            inner: ya_gcp::ClientBuilder::with_connector(config, connector).await?,
-            pubsub_config,
-        })
-    }
-}
-
-impl<C> ClientBuilder<C>
-where
-    C: MakeConnection<Uri> + Connect + Clone + Send + Sync + 'static,
-    C::Connection: Unpin + Send + 'static,
-    C::Future: Send + 'static,
-    BoxError: From<C::Error>,
-{
+impl ClientBuilder {
     /// Create a new [`ConsumerClient`] for consuming messages from PubSub subscriptions within the
     /// given project, identified by the given queue name.
     pub async fn build_consumer(
         &self,
         project: impl Into<String>,
         queue: impl Into<String>,
-    ) -> Result<ConsumerClient<C>, BuildError> {
-        Ok(ConsumerClient::new(
+    ) -> Result<ConsumerClient, BuildError> {
+        Ok(ConsumerClient::from_client(
             self.inner
                 .build_pubsub_subscriber(self.pubsub_config.clone())
                 .await?,
@@ -180,8 +157,8 @@ where
         &self,
         project: impl Into<String>,
         publisher_id: impl Into<String>,
-    ) -> Result<PublisherClient<C>, BuildError> {
-        Ok(PublisherClient::new(
+    ) -> Result<PublisherClient, BuildError> {
+        Ok(PublisherClient::from_client(
             self.inner
                 .build_pubsub_publisher(self.pubsub_config.clone())
                 .await?,

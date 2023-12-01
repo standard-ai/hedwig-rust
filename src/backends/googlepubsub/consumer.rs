@@ -17,11 +17,14 @@ use std::{
 };
 use tracing::debug;
 use uuid::Uuid;
-use ya_gcp::pubsub;
+use ya_gcp::{
+    grpc::{Body, BoxBody, Bytes, DefaultGrpcImpl, GrpcService, StdError},
+    pubsub,
+};
 
 use super::{
-    retry_policy, AcknowledgeError, BoxError, Connect, DefaultConnector, MakeConnection,
-    ModifyAcknowledgeError, PubSubError, StreamSubscriptionConfig, TopicName, Uri,
+    retry_policy, AcknowledgeError, BoxError, ModifyAcknowledgeError, PubSubError,
+    StreamSubscriptionConfig, TopicName,
 };
 
 /// A PubSub subscription name.
@@ -69,14 +72,22 @@ impl<'s> SubscriptionName<'s> {
 /// This includes managing subscriptions and reading data from subscriptions. Created using
 /// [`build_consumer`](super::ClientBuilder::build_consumer)
 #[derive(Debug, Clone)]
-pub struct ConsumerClient<C = DefaultConnector> {
-    client: pubsub::SubscriberClient<C>,
+pub struct ConsumerClient<S = DefaultGrpcImpl> {
+    client: pubsub::SubscriberClient<S>,
     project: String,
     queue: String,
 }
 
-impl<C> ConsumerClient<C> {
-    pub(super) fn new(client: pubsub::SubscriberClient<C>, project: String, queue: String) -> Self {
+impl<S> ConsumerClient<S> {
+    /// Create a new consumer from an existing pubsub client.
+    ///
+    /// This function is useful for client customization; most callers should typically use the
+    /// defaults provided by [`build_consumer`](super::ClientBuilder::build_consumer)
+    pub fn from_client(
+        client: pubsub::SubscriberClient<S>,
+        project: String,
+        queue: String,
+    ) -> Self {
         ConsumerClient {
             client,
             project,
@@ -106,22 +117,22 @@ impl<C> ConsumerClient<C> {
     }
 
     /// Get a reference to the underlying pubsub client
-    pub fn inner(&self) -> &pubsub::SubscriberClient<C> {
+    pub fn inner(&self) -> &pubsub::SubscriberClient<S> {
         &self.client
     }
 
     /// Get a mutable reference to the underlying pubsub client
-    pub fn inner_mut(&mut self) -> &mut pubsub::SubscriberClient<C> {
+    pub fn inner_mut(&mut self) -> &mut pubsub::SubscriberClient<S> {
         &mut self.client
     }
 }
 
-impl<C> ConsumerClient<C>
+impl<S> ConsumerClient<S>
 where
-    C: MakeConnection<Uri> + Connect + Clone + Send + Sync + 'static,
-    C::Connection: Unpin + Send + 'static,
-    C::Future: Send + 'static,
-    BoxError: From<C::Error>,
+    S: GrpcService<BoxBody>,
+    S::Error: Into<StdError>,
+    S::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <S::ResponseBody as Body>::Error: Into<StdError> + Send,
 {
     /// Create a new PubSub subscription
     ///
@@ -132,7 +143,10 @@ where
     ) -> Result<(), PubSubError> {
         let subscription = SubscriptionConfig::into_subscription(config, &*self);
 
-        self.client.create_subscription(subscription).await?;
+        self.client
+            .raw_api_mut()
+            .create_subscription(subscription)
+            .await?;
 
         Ok(())
     }
@@ -147,7 +161,12 @@ where
         let subscription = self.format_subscription(subscription).into();
 
         self.client
-            .delete_subscription(pubsub::api::DeleteSubscriptionRequest { subscription })
+            .raw_api_mut()
+            .delete_subscription({
+                let mut r = pubsub::api::DeleteSubscriptionRequest::default();
+                r.subscription = subscription;
+                r
+            })
             .await?;
 
         Ok(())
@@ -158,7 +177,10 @@ where
         &mut self,
         subscription: SubscriptionName<'_>,
         stream_config: StreamSubscriptionConfig,
-    ) -> PubSubStream<C> {
+    ) -> PubSubStream<S>
+    where
+        S: Clone,
+    {
         let subscription = self.format_subscription(subscription);
 
         PubSubStream(self.client.stream_subscription(subscription, stream_config))
@@ -172,11 +194,13 @@ where
         subscription: SubscriptionName<'_>,
         timestamp: pubsub::api::Timestamp,
     ) -> Result<(), PubSubError> {
-        let request = pubsub::api::SeekRequest {
-            subscription: self.format_subscription(subscription).into(),
-            target: Some(pubsub::api::seek_request::Target::Time(timestamp)),
+        let request = {
+            let mut r = pubsub::api::SeekRequest::default();
+            r.subscription = self.format_subscription(subscription).into();
+            r.target = Some(pubsub::api::seek_request::Target::Time(timestamp));
+            r
         };
-        self.client.seek(request).await?;
+        self.client.raw_api_mut().seek(request).await?;
         Ok(())
     }
 
@@ -209,27 +233,33 @@ match_fields! {
             push_config,
             detached,
             topic_message_retention_duration,
+            bigquery_config,
+            cloud_storage_config,
+            enable_exactly_once_delivery,
+        // FIXME check state
     }
 }
 
 impl<'s> SubscriptionConfig<'s> {
     fn into_subscription<C>(self, client: &ConsumerClient<C>) -> pubsub::api::Subscription {
-        pubsub::api::Subscription {
-            name: client.format_subscription(self.name).into(),
-            topic: client.format_topic(self.topic).into(),
-            ack_deadline_seconds: self.ack_deadline_seconds.into(),
-            retain_acked_messages: self.retain_acked_messages,
-            message_retention_duration: self.message_retention_duration,
-            labels: self.labels,
-            enable_message_ordering: self.enable_message_ordering,
-            expiration_policy: self.expiration_policy,
-            filter: self.filter,
-            dead_letter_policy: self.dead_letter_policy,
-            retry_policy: self.retry_policy,
-            push_config: None, // push delivery isn't used, it's streaming pull
-            detached: false,   // set by the server on gets/listing
-            topic_message_retention_duration: None, // Output only, set by the server
-        }
+        let mut sub = pubsub::api::Subscription::default();
+
+        sub.name = client.format_subscription(self.name).into();
+        sub.topic = client.format_topic(self.topic).into();
+        sub.ack_deadline_seconds = self.ack_deadline_seconds.into();
+        sub.retain_acked_messages = self.retain_acked_messages;
+        sub.message_retention_duration = self.message_retention_duration;
+        sub.labels = self.labels;
+        sub.enable_message_ordering = self.enable_message_ordering;
+        sub.expiration_policy = self.expiration_policy;
+        sub.filter = self.filter;
+        sub.dead_letter_policy = self.dead_letter_policy;
+        sub.retry_policy = self.retry_policy;
+        sub.push_config = None; // push delivery isn't used, it's streaming pull
+        sub.detached = false; // set by the server on gets/listing
+        sub.topic_message_retention_duration = None; // Output only, set by the server
+
+        sub
     }
 }
 
@@ -314,11 +344,11 @@ impl crate::consumer::AcknowledgeToken for pubsub::AcknowledgeToken {
 #[pin_project]
 #[cfg_attr(docsrs, doc(cfg(feature = "google")))]
 pub struct PubSubStream<
-    C = DefaultConnector,
+    S = DefaultGrpcImpl,
     R = retry_policy::ExponentialBackoff<pubsub::PubSubRetryCheck>,
->(#[pin] pubsub::StreamSubscription<C, R>);
+>(#[pin] pubsub::StreamSubscription<S, R>);
 
-impl<C, OldR> PubSubStream<C, OldR> {
+impl<S, OldR> PubSubStream<S, OldR> {
     /// Set the [`RetryPolicy`](retry_policy::RetryPolicy) to use for this streaming subscription.
     ///
     /// The stream will be reconnected if the policy indicates that an encountered error should be
@@ -326,7 +356,7 @@ impl<C, OldR> PubSubStream<C, OldR> {
     // Because `poll_next` requires `Pin<&mut Self>`, this function cannot be called after the
     // stream has started because it moves `self`. That means that the retry policy can only be
     // changed before the polling starts, and is fixed from that point on
-    pub fn with_retry_policy<R>(self, retry_policy: R) -> PubSubStream<C, R>
+    pub fn with_retry_policy<R>(self, retry_policy: R) -> PubSubStream<S, R>
     where
         R: retry_policy::RetryPolicy<(), PubSubError>,
     {
@@ -334,12 +364,13 @@ impl<C, OldR> PubSubStream<C, OldR> {
     }
 }
 
-impl<C, R> stream::Stream for PubSubStream<C, R>
+impl<S, R> stream::Stream for PubSubStream<S, R>
 where
-    C: MakeConnection<Uri> + Connect + Clone + Send + Sync + 'static,
-    C::Connection: Unpin + Send + 'static,
-    C::Future: Send + 'static,
-    BoxError: From<C::Error>,
+    S: GrpcService<BoxBody> + Send + 'static,
+    S::Future: Send + 'static,
+    S::Error: Into<StdError>,
+    S::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <S::ResponseBody as Body>::Error: Into<StdError> + Send,
     R: retry_policy::RetryPolicy<(), PubSubError> + Send + 'static,
     R::RetryOp: Send + 'static,
     <R::RetryOp as retry_policy::RetryOperation<(), PubSubError>>::Sleep: Send + 'static,
@@ -359,19 +390,20 @@ where
     }
 }
 
-impl<C, R> crate::consumer::Consumer for PubSubStream<C, R>
+impl<S, R> crate::consumer::Consumer for PubSubStream<S, R>
 where
-    C: MakeConnection<Uri> + Connect + Clone + Send + Sync + 'static,
-    C::Connection: Unpin + Send + 'static,
-    C::Future: Send + 'static,
-    BoxError: From<C::Error>,
+    S: GrpcService<BoxBody> + Send + 'static,
+    S::Future: Send + 'static,
+    S::Error: Into<StdError>,
+    S::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <S::ResponseBody as Body>::Error: Into<StdError> + Send,
     R: retry_policy::RetryPolicy<(), PubSubError> + Send + 'static,
     R::RetryOp: Send + 'static,
     <R::RetryOp as retry_policy::RetryOperation<(), PubSubError>>::Sleep: Send + 'static,
 {
     type AckToken = pubsub::AcknowledgeToken;
     type Error = PubSubStreamError;
-    type Stream = PubSubStream<C, R>;
+    type Stream = PubSubStream<S, R>;
 
     fn stream(self) -> Self::Stream {
         self
@@ -528,15 +560,17 @@ mod test {
         let mut attributes = user_attrs.clone();
         attributes.extend(hedwig_attrs);
 
-        let message = PubsubMessage {
-            data: data.into(),
-            attributes,
-            message_id: String::from("some_unique_id"),
-            publish_time: Some(pubsub::api::Timestamp {
+        let message = {
+            let mut m = PubsubMessage::default();
+            m.data = data.into();
+            m.attributes = attributes;
+            m.message_id = String::from("some_unique_id");
+            m.publish_time = Some(pubsub::api::Timestamp {
                 seconds: 15,
                 nanos: 42,
-            }),
-            ordering_key: String::new(),
+            });
+            m.ordering_key = String::new();
+            m
         };
 
         let validated_message = pubsub_to_hedwig(message).unwrap();
@@ -576,9 +610,10 @@ mod test {
             let mut attributes = full_hedwig_attrs.clone();
             attributes.remove(missing_header);
 
-            let res = pubsub_to_hedwig(PubsubMessage {
-                attributes,
-                ..PubsubMessage::default()
+            let res = pubsub_to_hedwig({
+                let mut m = PubsubMessage::default();
+                m.attributes = attributes;
+                m
             });
 
             match res {
@@ -618,9 +653,10 @@ mod test {
         let mut attributes = user_attrs.clone();
         attributes.extend(hedwig_attrs);
 
-        let validated_message = pubsub_to_hedwig(PubsubMessage {
-            attributes,
-            ..PubsubMessage::default()
+        let validated_message = pubsub_to_hedwig({
+            let mut m = PubsubMessage::default();
+            m.attributes = attributes;
+            m
         })
         .unwrap();
 
