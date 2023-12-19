@@ -4,7 +4,7 @@ use bytes::Bytes;
 use std::{borrow::Cow, time::SystemTime};
 use uuid::Uuid;
 
-use crate::Headers;
+use crate::{Headers, Topic};
 
 /// A validated message.
 ///
@@ -86,4 +86,61 @@ impl<M> ValidatedMessage<M> {
     pub fn into_data(self) -> M {
         self.data
     }
+}
+
+/// Messages which can be decoded from a [`ValidatedMessage`] stream.
+pub trait DecodableMessage {
+    /// The error returned when a message fails to decode
+    type Error;
+
+    /// The decoder used to decode a validated message
+    type Decoder;
+
+    /// Decode the given message, using the given decoder, into its structured type
+    fn decode(msg: ValidatedMessage<Bytes>, decoder: &Self::Decoder) -> Result<Self, Self::Error>
+    where
+        Self: Sized;
+}
+
+impl<M> DecodableMessage for ValidatedMessage<M>
+where
+    M: DecodableMessage,
+{
+    /// The error returned when a message fails to decode
+    type Error = M::Error;
+
+    /// The decoder used to decode a validated message
+    type Decoder = M::Decoder;
+
+    /// Decode the given message, using the given decoder, into its structured type
+    fn decode(msg: ValidatedMessage<Bytes>, decoder: &Self::Decoder) -> Result<Self, Self::Error>
+    where
+        Self: Sized,
+    {
+        let message = M::decode(msg.clone(), decoder)?;
+        Ok(Self {
+            id: msg.id,
+            timestamp: msg.timestamp,
+            schema: msg.schema,
+            headers: msg.headers,
+            data: message,
+        })
+    }
+}
+
+/// Types that can be encoded and published.
+pub trait EncodableMessage {
+    /// The errors that can occur when calling the [`EncodableMessage::encode`] method.
+    ///
+    /// Will typically match the errors returned by the [`EncodableMessage::Validator`].
+    type Error;
+
+    /// The validator to use for this message.
+    type Validator;
+
+    /// Topic into which this message shall be published.
+    fn topic(&self) -> Topic;
+
+    /// Encode the message payload.
+    fn encode(&self, validator: &Self::Validator) -> Result<ValidatedMessage<Bytes>, Self::Error>;
 }

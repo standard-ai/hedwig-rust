@@ -1,4 +1,4 @@
-//! Validation and decoding for messages encoded with protobuf using [`prost`]
+//! Validation and decoding for messages encoded with protobuf using [`prost`](::prost)
 //!
 //! ```
 //! use hedwig::validators::prost::{ProstValidator, ProstDecoder, ExactSchemaMatcher};
@@ -120,7 +120,7 @@ impl<S> ProstDecoder<S> {
             .try_match_schema(msg.schema())
             .map_err(ProstDecodeError::InvalidSchema)?;
 
-        Ok(M::decode(msg.data)?)
+        Ok(M::decode(msg.into_data())?)
     }
 }
 

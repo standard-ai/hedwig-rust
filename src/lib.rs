@@ -75,17 +75,12 @@
 //! ```
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-pub use topic::Topic;
-
-use bytes::Bytes;
-use std::collections::BTreeMap;
+pub use hedwig_core::{message, Headers, Topic, ValidatedMessage};
 
 mod backends;
 mod consumer;
-pub mod message;
 mod publisher;
 mod tests;
-mod topic;
 pub mod validators;
 
 pub use backends::*;
@@ -112,9 +107,3 @@ pub enum Error {
     #[error("Unable to encode message payload")]
     EncodeMessage(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
-
-/// Custom headers associated with a message.
-pub type Headers = BTreeMap<String, String>;
-
-/// A validated message.
-pub type ValidatedMessage = message::ValidatedMessage<Bytes>;
