@@ -1,0 +1,9 @@
+[package]
+name = "hedwig_core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bytes = "1"
+smallstr = { version = "0.3.0", features = ["union"] }
+uuid = { version = "1.6", features = ["v4"], default-features = false }

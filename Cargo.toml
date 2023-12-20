@@ -1,6 +1,9 @@
+[workspace]
+members = ["hedwig_core"]
+
 [package]
 name = "hedwig"
-version = "7.0.0"
+version = "7.1.0"
 authors = [
     "Aniruddha Maru <aniruddhamaru@gmail.com>",
     "Simonas Kazlauskas <hedwig@kazlauskas.me>",
@@ -38,6 +41,7 @@ async-trait = { version = "0.1" }
 bytes = "1"
 either = { version = "1", features = ["use_std"], default-features = false }
 futures-util = { version = "0.3.17", features = ["std", "sink"], default-features = false }
+hedwig_core = { version = "0.1", path = "./hedwig_core" }
 pin-project = "1"
 smallstr = { version = "0.3.0", features = ["union"] }
 thiserror = { version = "1", default-features = false }

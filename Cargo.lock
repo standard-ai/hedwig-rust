@@ -485,7 +485,7 @@ dependencies = [
 
 [[package]]
 name = "hedwig"
-version = "7.0.0"
+version = "7.1.0"
 dependencies = [
  "async-channel",
  "async-trait",
@@ -493,6 +493,7 @@ dependencies = [
  "either",
  "futures-channel",
  "futures-util",
+ "hedwig_core",
  "parking_lot",
  "pin-project",
  "prost",
@@ -508,6 +509,15 @@ dependencies = [
  "uuid 1.6.1",
  "valico",
  "ya-gcp",
+]
+
+[[package]]
+name = "hedwig_core"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "smallstr",
+ "uuid 1.6.1",
 ]
 
 [[package]]

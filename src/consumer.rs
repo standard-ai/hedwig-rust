@@ -13,6 +13,8 @@ use std::{
     task::{Context, Poll},
 };
 
+pub use hedwig_core::message::DecodableMessage;
+
 /// Message consumers ingest messages from a queue service and present them to the user application
 /// as a [`Stream`](futures_util::stream::Stream).
 ///
@@ -75,46 +77,6 @@ pub trait Consumer {
             decoder,
             _message_type: std::marker::PhantomData,
         }
-    }
-}
-
-/// Messages which can be decoded from a [`ValidatedMessage`] stream.
-pub trait DecodableMessage {
-    /// The error returned when a message fails to decode
-    type Error;
-
-    /// The decoder used to decode a validated message
-    type Decoder;
-
-    /// Decode the given message, using the given decoder, into its structured type
-    fn decode(msg: ValidatedMessage<Bytes>, decoder: &Self::Decoder) -> Result<Self, Self::Error>
-    where
-        Self: Sized;
-}
-
-impl<M> DecodableMessage for ValidatedMessage<M>
-where
-    M: DecodableMessage,
-{
-    /// The error returned when a message fails to decode
-    type Error = M::Error;
-
-    /// The decoder used to decode a validated message
-    type Decoder = M::Decoder;
-
-    /// Decode the given message, using the given decoder, into its structured type
-    fn decode(msg: ValidatedMessage<Bytes>, decoder: &Self::Decoder) -> Result<Self, Self::Error>
-    where
-        Self: Sized,
-    {
-        let message = M::decode(msg.clone(), decoder)?;
-        Ok(Self {
-            id: msg.id,
-            timestamp: msg.timestamp,
-            schema: msg.schema,
-            headers: msg.headers,
-            data: message,
-        })
     }
 }
 

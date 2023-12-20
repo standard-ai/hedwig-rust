@@ -1,11 +1,12 @@
 //! Types, traits, and functions necessary to publish messages using hedwig
 
-use crate::{Topic, ValidatedMessage};
 use futures_util::sink;
 use std::{
     pin::Pin,
     task::{Context, Poll},
 };
+
+pub use hedwig_core::message::EncodableMessage;
 
 /// Message publishers.
 ///
@@ -43,23 +44,6 @@ pub trait Publisher<M: EncodableMessage, S: sink::Sink<M> = Drain<M>> {
         validator: M::Validator,
         response_sink: S,
     ) -> Self::PublishSink;
-}
-
-/// Types that can be encoded and published.
-pub trait EncodableMessage {
-    /// The errors that can occur when calling the [`EncodableMessage::encode`] method.
-    ///
-    /// Will typically match the errors returned by the [`EncodableMessage::Validator`].
-    type Error;
-
-    /// The validator to use for this message.
-    type Validator;
-
-    /// Topic into which this message shall be published.
-    fn topic(&self) -> Topic;
-
-    /// Encode the message payload.
-    fn encode(&self, validator: &Self::Validator) -> Result<ValidatedMessage, Self::Error>;
 }
 
 /// Like [`futures_util::sink::Drain`] but implements `Default`
