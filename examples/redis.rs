@@ -1,21 +1,10 @@
-//! An example of ingesting messages from a PubSub subscription, applying a
-//! transformation, then submitting those transformations to another PubSub topic.
-
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
 use hedwig::{
     redis::{
-        ClientBuilder,
-        ClientBuilderConfig,
-        // PubSubMessage,
-        // PublishError,
-        // ServiceAccountAuth,
-        // StreamSubscriptionConfig,
-        // SubscriptionConfig,
-        SubscriptionName,
-        // TopicConfig,
-        TopicName,
+        ClientBuilder, ClientBuilderConfig, PubSubMessage, PublishError, SubscriptionConfig,
+        SubscriptionName, TopicConfig, TopicName,
     },
-    validators, Consumer, DecodableMessage, EncodableMessage, Headers, Publisher,
+    validators, Consumer, DecodableMessage, EncodableMessage, Headers, MessageStream, Publisher,
 };
 use std::{error::Error as StdError, time::SystemTime};
 use structopt::StructOpt;
@@ -122,28 +111,24 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     let mut publisher_client = builder.build_publisher().await?;
     let mut consumer_client = builder.build_consumer().await?;
 
-    // TODO Implement topic creation
-    // for topic_name in [&input_topic_name, &output_topic_name] {
-    //     println!("Creating topic {:?}", topic_name);
-    //
-    //     publisher_client
-    //         .create_topic(TopicConfig {
-    //             name: topic_name.clone(),
-    //             ..TopicConfig::default()
-    //         })
-    //         .await?;
-    // }
+    for topic_name in [&input_topic_name, &output_topic_name] {
+        println!("Creating topic {:?}", topic_name);
+
+        publisher_client
+            .create_topic(TopicConfig {
+                name: topic_name.clone(),
+            })
+            .await?;
+    }
 
     println!("Creating subscription {:?}", &subscription_name);
 
-    // TODO Implement subscription creation
-    // consumer_client
-    //     .create_subscription(SubscriptionConfig {
-    //         topic: input_topic_name.clone(),
-    //         name: subscription_name.clone(),
-    //         ..SubscriptionConfig::default()
-    //     })
-    //     .await?;
+    consumer_client
+        .create_subscription(SubscriptionConfig {
+            topic: input_topic_name.clone(),
+            name: subscription_name.clone(),
+        })
+        .await?;
 
     println!(
         "Synthesizing input messages for topic {:?}",
@@ -168,10 +153,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     println!("Ingesting input messages, applying transformations, and publishing to destination");
 
     let mut read_stream = consumer_client
-        .stream_subscription(
-            subscription_name.clone(),
-            StreamSubscriptionConfig::default(),
-        )
+        .stream_subscription(subscription_name.clone())
         .consume::<UserCreatedMessage>(hedwig::validators::ProstDecoder::new(
             hedwig::validators::prost::ExactSchemaMatcher::new("user.created/1.0"),
         ));

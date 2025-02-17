@@ -24,12 +24,12 @@ maintenance = { status = "actively-developed" }
 
 [features]
 # TODO default enabled during dev. Should be: default = []
-default = ["google", "redis", "protobuf"]
+default = ["redis", "mock", "google", "protobuf", "json-schema"]
 
 # Backends
-google = ["ya-gcp", "tracing", "parking_lot"]
-redis = ["tracing", "async-channel", "parking_lot"]
-mock = ["async-channel", "parking_lot"]
+google = ["dep:ya-gcp", "dep:tracing", "dep:parking_lot"]
+redis = ["dep:tracing", "dep:async-channel", "dep:parking_lot", "dep:redis"]
+mock = ["dep:async-channel", "dep:parking_lot"]
 
 # Validators
 json-schema = ["valico", "serde_json", "serde"]
@@ -70,6 +70,7 @@ prost = { version = "0.12", optional = true, features = [
 tracing = { version = "0.1.37", optional = true }
 valico = { version = "^3.2", optional = true, default-features = false }
 ya-gcp = { version = "0.11", features = ["pubsub"], optional = true }
+redis = { version = "0.29.0", features = ["streams"], optional = true }
 
 [dev-dependencies]
 async-channel = { version = "1.6" }
