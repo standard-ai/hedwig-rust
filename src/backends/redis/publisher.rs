@@ -30,7 +30,7 @@ impl PublisherClient {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum PublishError {}
 
 pub struct TopicConfig<'s> {
@@ -51,13 +51,6 @@ impl PublisherClient {
             client: self.clone(),
         }
     }
-
-    // TODO list_topics (paginated, nontrivial)
-    // TODO list_topic_subscriptions (same)
-    // TODO list_topic_snapshots (same)
-    // TODO update_topic
-    // TODO get_topic
-    // TODO detach_subscription
 }
 
 /// A publisher for sending messages to PubSub topics

@@ -1,7 +1,7 @@
 #![allow(unused_variables)]
 #![allow(unused_imports)]
 
-use crate::{Headers, ValidatedMessage};
+use crate::{AcknowledgeableMessage, Headers, ValidatedMessage};
 use async_trait::async_trait;
 use futures_util::stream;
 use pin_project::pin_project;
@@ -68,7 +68,53 @@ pub struct SubscriptionConfig<'s> {
 
 pub struct RedisStream {}
 
-// TODO
-pub type AcknowledgeToken = ();
-
 pub type PubSubMessage<T> = crate::consumer::AcknowledgeableMessage<AcknowledgeToken, T>;
+
+impl crate::consumer::Consumer for RedisStream {
+    type AckToken = AcknowledgeToken;
+    type Error = RedisStreamError;
+    type Stream = Self;
+
+    fn stream(self) -> Self::Stream {
+        self
+    }
+}
+
+impl stream::Stream for RedisStream {
+    type Item =
+        Result<AcknowledgeableMessage<AcknowledgeToken, ValidatedMessage>, RedisStreamError>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
+        todo!()
+    }
+}
+
+/// Errors encountered while streaming messages
+#[derive(Debug, thiserror::Error)]
+pub enum RedisStreamError {
+    /// An error from the underlying stream
+    #[error(transparent)]
+    Stream(#[from] redis::RedisError),
+}
+
+#[derive(Debug)]
+pub struct AcknowledgeToken;
+
+#[async_trait::async_trait]
+impl crate::consumer::AcknowledgeToken for AcknowledgeToken {
+    type AckError = ();
+    type NackError = ();
+    type ModifyError = ();
+
+    async fn ack(self) -> Result<(), Self::AckError> {
+        Ok(())
+    }
+
+    async fn nack(self) -> Result<(), Self::NackError> {
+        Ok(())
+    }
+
+    async fn modify_deadline(&mut self, _seconds: u32) -> Result<(), Self::ModifyError> {
+        Ok(())
+    }
+}
