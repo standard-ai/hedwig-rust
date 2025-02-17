@@ -102,9 +102,9 @@ pub struct AcknowledgeToken;
 
 #[async_trait::async_trait]
 impl crate::consumer::AcknowledgeToken for AcknowledgeToken {
-    type AckError = ();
-    type NackError = ();
-    type ModifyError = ();
+    type AckError = RedisError; // TODO
+    type NackError = RedisError; // TODO
+    type ModifyError = RedisError; // TODO
 
     async fn ack(self) -> Result<(), Self::AckError> {
         Ok(())

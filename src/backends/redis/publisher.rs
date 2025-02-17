@@ -31,7 +31,7 @@ impl PublisherClient {
 }
 
 /// Errors which can occur while publishing a message
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum PublishError<M: EncodableMessage, E> {
     /// An error from publishing
     Publish {
@@ -74,6 +74,30 @@ where
         }
     }
 }
+
+impl<M: EncodableMessage, E> std::error::Error for PublishError<M, E>
+where
+    M: fmt::Debug,
+    M::Error: std::error::Error + 'static,
+    E: std::error::Error + 'static,
+{
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            PublishError::Publish { cause, .. } => Some(cause as &_),
+            PublishError::Response(cause) => Some(cause as &_),
+            PublishError::InvalidMessage { cause, .. } => Some(cause as &_),
+        }
+    }
+}
+
+// impl<M: EncodableMessage, E> From<TopicSinkError<M, E>> for PublishError<M, E> {
+//     fn from(from: TopicSinkError<M, E>) -> Self {
+//         match from {
+//             TopicSinkError::Publish(cause, messages) => PublishError::Publish { cause, messages },
+//             TopicSinkError::Response(err) => PublishError::Response(err),
+//         }
+//     }
+// }
 
 pub struct TopicConfig<'s> {
     pub name: TopicName<'s>,
