@@ -41,7 +41,10 @@ required-features = ["google", "protobuf"]
 async-trait = { version = "0.1" }
 bytes = "1"
 either = { version = "1", features = ["use_std"], default-features = false }
-futures-util = { version = "0.3.17", features = ["std", "sink"], default-features = false }
+futures-util = { version = "0.3.17", features = [
+    "std",
+    "sink",
+], default-features = false }
 hedwig_core = { version = "0.1", path = "./hedwig_core" }
 pin-project = "1"
 smallstr = { version = "0.3.0", features = ["union"] }
@@ -51,9 +54,13 @@ uuid = { version = "1.6", features = ["v4"], default-features = false }
 
 async-channel = { version = "1.6", optional = true }
 serde = { version = "^1.0", optional = true, default-features = false }
-serde_json = { version = "^1", features = ["std"], optional = true, default-features = false }
+serde_json = { version = "^1", features = [
+    "std",
+], optional = true, default-features = false }
 parking_lot = { version = "0.11", optional = true }
-prost = { version = "0.12", optional = true, features = ["std"], default-features = false }
+prost = { version = "0.12", optional = true, features = [
+    "std",
+], default-features = false }
 tracing = { version = "0.1.37", optional = true }
 valico = { version = "^3.2", optional = true, default-features = false }
 ya-gcp = { version = "0.11", features = ["pubsub"], optional = true }
