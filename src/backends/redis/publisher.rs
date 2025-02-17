@@ -30,8 +30,50 @@ impl PublisherClient {
     }
 }
 
+/// Errors which can occur while publishing a message
 #[derive(Debug, thiserror::Error)]
-pub enum PublishError {}
+pub enum PublishError<M: EncodableMessage, E> {
+    /// An error from publishing
+    Publish {
+        /// The cause of the error
+        cause: redis::RedisError,
+
+        /// The batch of messages which failed to be published
+        messages: Vec<M>,
+    },
+
+    /// An error from submitting a successfully published message to the user-provided response
+    /// sink
+    Response(E),
+
+    /// An error from validating the given message
+    InvalidMessage {
+        /// The cause of the error
+        cause: M::Error,
+
+        /// The message which failed to be validated
+        message: M,
+    },
+}
+
+impl<M: EncodableMessage, E> fmt::Display for PublishError<M, E>
+where
+    M::Error: fmt::Display,
+    E: fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            PublishError::Publish { messages, .. } => f.write_fmt(format_args!(
+                "could not publish {} messages",
+                messages.len()
+            )),
+            PublishError::Response(..) => f.write_str(
+                "could not forward response for a successfully published message to the sink",
+            ),
+            PublishError::InvalidMessage { .. } => f.write_str("could not validate message"),
+        }
+    }
+}
 
 pub struct TopicConfig<'s> {
     pub name: TopicName<'s>,
@@ -63,7 +105,7 @@ where
     M: EncodableMessage + Send + 'static,
     S: Sink<M> + Send + 'static,
 {
-    type PublishError = PublishError;
+    type PublishError = PublishError<M, S>;
     type PublishSink = PublishSink<M, S>;
 
     fn publish_sink_with_responses(
@@ -79,6 +121,7 @@ where
     }
 }
 
+#[pin_project]
 pub struct PublishSink<M: EncodableMessage, S: Sink<M>> {
     validator: M::Validator,
     client: PublisherClient,
@@ -90,7 +133,7 @@ where
     M: EncodableMessage + Send + 'static,
     S: Sink<M> + Send + 'static,
 {
-    type Error = PublishError;
+    type Error = PublishError<M, S>;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
         todo!()
