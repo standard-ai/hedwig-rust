@@ -28,7 +28,7 @@ default = ["google", "redis", "protobuf"]
 
 # Backends
 google = ["ya-gcp", "tracing", "parking_lot"]
-redis = ["tracing"]
+redis = ["tracing", "async-channel", "parking_lot"]
 mock = ["async-channel", "parking_lot"]
 
 # Validators
