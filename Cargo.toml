@@ -3,11 +3,12 @@ members = ["hedwig_core"]
 
 [package]
 name = "hedwig"
-version = "7.1.0"
+version = "7.2.0"
 authors = [
     "Aniruddha Maru <aniruddhamaru@gmail.com>",
     "Simonas Kazlauskas <hedwig@kazlauskas.me>",
     "Renar Narubin <r.narubin@gmail.com>",
+    "Alessandro Pezzato <alessandro.pezzato@standard.ai>",
 ]
 edition = "2021"
 repository = "https://github.com/standard-ai/hedwig-rust.git"
