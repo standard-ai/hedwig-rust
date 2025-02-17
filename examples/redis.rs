@@ -4,9 +4,16 @@
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
 use hedwig::{
     redis::{
-        AuthFlow, ClientBuilder, ClientBuilderConfig, PubSubConfig, PubSubMessage, PublishError,
-        ServiceAccountAuth, StreamSubscriptionConfig, SubscriptionConfig, SubscriptionName,
-        TopicConfig, TopicName,
+        ClientBuilder,
+        ClientBuilderConfig,
+        // PubSubMessage,
+        // PublishError,
+        // ServiceAccountAuth,
+        // StreamSubscriptionConfig,
+        // SubscriptionConfig,
+        SubscriptionName,
+        // TopicConfig,
+        TopicName,
     },
     validators, Consumer, DecodableMessage, EncodableMessage, Headers, Publisher,
 };
@@ -89,22 +96,22 @@ impl EncodableMessage for TransformedMessage {
 
 #[derive(Debug, StructOpt)]
 struct Args {
-    /// The name of the pubsub project
     #[structopt(long)]
-    project_name: String,
+    endpoint: String,
 }
 
+// TODO SW-19526 Recreate the example from googlepubsub with redis
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn StdError>> {
     let args = Args::from_args();
 
     println!("Building PubSub clients");
 
-    let builder = ClientBuilder::new(
-        ClientBuilderConfig::new().auth_flow(AuthFlow::ServiceAccount(ServiceAccountAuth::EnvVar)),
-        PubSubConfig::default(),
-    )
-    .await?;
+    let config = ClientBuilderConfig {
+        endpoint: args.endpoint,
+    };
+
+    let builder = ClientBuilder::new(config).await?;
 
     let input_topic_name = TopicName::new(USER_CREATED_TOPIC);
     let subscription_name = SubscriptionName::new("user-metadata-updaters");
@@ -112,31 +119,31 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     let output_topic_name = TopicName::new(USER_UPDATED_TOPIC);
     const APP_NAME: &str = "user-metadata-updater";
 
-    let mut publisher_client = builder
-        .build_publisher(&args.project_name, APP_NAME)
-        .await?;
-    let mut consumer_client = builder.build_consumer(&args.project_name, APP_NAME).await?;
+    let mut publisher_client = builder.build_publisher().await?;
+    let mut consumer_client = builder.build_consumer().await?;
 
-    for topic_name in [&input_topic_name, &output_topic_name] {
-        println!("Creating topic {:?}", topic_name);
-
-        publisher_client
-            .create_topic(TopicConfig {
-                name: topic_name.clone(),
-                ..TopicConfig::default()
-            })
-            .await?;
-    }
+    // TODO Implement topic creation
+    // for topic_name in [&input_topic_name, &output_topic_name] {
+    //     println!("Creating topic {:?}", topic_name);
+    //
+    //     publisher_client
+    //         .create_topic(TopicConfig {
+    //             name: topic_name.clone(),
+    //             ..TopicConfig::default()
+    //         })
+    //         .await?;
+    // }
 
     println!("Creating subscription {:?}", &subscription_name);
 
-    consumer_client
-        .create_subscription(SubscriptionConfig {
-            topic: input_topic_name.clone(),
-            name: subscription_name.clone(),
-            ..SubscriptionConfig::default()
-        })
-        .await?;
+    // TODO Implement subscription creation
+    // consumer_client
+    //     .create_subscription(SubscriptionConfig {
+    //         topic: input_topic_name.clone(),
+    //         name: subscription_name.clone(),
+    //         ..SubscriptionConfig::default()
+    //     })
+    //     .await?;
 
     println!(
         "Synthesizing input messages for topic {:?}",

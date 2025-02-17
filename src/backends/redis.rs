@@ -7,12 +7,60 @@ use futures_util::{
 use parking_lot::Mutex;
 use pin_project::pin_project;
 use std::{
+    borrow::Cow,
     collections::BTreeMap,
     error::Error as StdError,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
 };
+
+pub struct ClientBuilderConfig {
+    pub endpoint: String,
+}
+
+pub struct ClientBuilder {
+    topics: Arc<Mutex<Topics>>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum CreateBuilderError {}
+
+impl ClientBuilder {
+    pub async fn new(config: ClientBuilderConfig) -> Result<Self, CreateBuilderError> {
+        Ok(ClientBuilder {
+            topics: Arc::new(Mutex::new(BTreeMap::new())),
+        })
+    }
+
+    pub async fn build_consumer(&self) -> Result<PublisherClient, BuildError> {
+        Ok(ConsumerClient::from_client(self))
+    }
+
+    pub async fn build_publisher(&self) -> Result<PublisherClient, BuildError> {
+        Ok(PublisherClient::from_client(self))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TopicName<'s>(Cow<'s, str>);
+
+impl<'s> TopicName<'s> {
+    /// Create a new `TopicName`
+    pub fn new(name: impl Into<Cow<'s, str>>) -> Self {
+        Self(name.into())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SubscriptionName<'s>(Cow<'s, str>);
+
+impl<'s> SubscriptionName<'s> {
+    /// Create a new `SubscriptionName`
+    pub fn new(subscription: impl Into<Cow<'s, str>>) -> Self {
+        Self(subscription.into())
+    }
+}
 
 /// Errors originating from Redis publisher and consumer operations
 #[derive(Debug, thiserror::Error)]
@@ -35,47 +83,27 @@ type Topics = BTreeMap<Topic, Subscriptions>;
 type Subscriptions = BTreeMap<RedisSubscription, Channel<ValidatedMessage>>;
 
 #[derive(Debug, Clone)]
-pub struct RedisPublisher {
+pub struct PublisherClient {
     topics: Arc<Mutex<Topics>>,
 }
 
-impl RedisPublisher {
-    pub fn new() -> Self {
-        RedisPublisher {
-            topics: Arc::new(Mutex::new(BTreeMap::new())),
-        }
-    }
-
-    pub fn new_consumer(
-        &self,
-        topic: impl Into<Topic>,
-        subscription: impl Into<RedisSubscription>,
-    ) -> RedisConsumer {
-        let mut topics = self.topics.lock();
-        let subscriptions = topics.entry(topic.into()).or_default();
-
-        let channel = subscriptions
-            .entry(subscription.into())
-            .or_insert_with(|| {
-                let (sender, receiver) = mpmc::unbounded();
-                Channel { sender, receiver }
-            })
-            .clone();
-
-        RedisConsumer {
-            subscription_messages: channel.receiver,
-            subscription_resend: channel.sender,
+impl PublisherClient {
+    pub fn from_client(client: &ClientBuilder) -> Self {
+        PublisherClient {
+            topics: client.topics.clone(),
         }
     }
 }
 
-impl Default for RedisPublisher {
-    fn default() -> Self {
-        Self::new()
+impl ConsumerClient {
+    pub fn from_client(client: &ClientBuilder) -> ConsumerClient {
+        ConsumerClient {
+            topics: client.topics.clone(),
+        }
     }
 }
 
-impl<M, S> crate::Publisher<M, S> for RedisPublisher
+impl<M, S> crate::Publisher<M, S> for PublisherClient
 where
     M: crate::EncodableMessage,
     M::Error: StdError + 'static,
@@ -197,15 +225,11 @@ where
 
 /// A consumer for messages from a particular subscription to a [`RedisPublisher`]
 #[derive(Debug, Clone)]
-pub struct RedisConsumer {
-    // channel receiver to get messages from the subscription
-    subscription_messages: mpmc::Receiver<ValidatedMessage>,
-
-    // channel sender to resend messages to the subscription on nack
-    subscription_resend: mpmc::Sender<ValidatedMessage>,
+pub struct ConsumerClient {
+    topics: Arc<Mutex<Topics>>,
 }
 
-impl crate::Consumer for RedisConsumer {
+impl crate::Consumer for ConsumerClient {
     type AckToken = RedisAckToken;
     type Error = Error;
     type Stream = Self;
@@ -215,7 +239,7 @@ impl crate::Consumer for RedisConsumer {
     }
 }
 
-impl stream::Stream for RedisConsumer {
+impl stream::Stream for ConsumerClient {
     type Item = Result<AcknowledgeableMessage<RedisAckToken, ValidatedMessage>, Error>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {

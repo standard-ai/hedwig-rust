@@ -94,6 +94,7 @@ struct Args {
     project_name: String,
 }
 
+// TODO SW-19526 Just a bookmark to googlepubsub example
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn StdError>> {
     let args = Args::from_args();
