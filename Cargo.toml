@@ -23,10 +23,12 @@ categories = ["asynchronous", "web-programming"]
 maintenance = { status = "actively-developed" }
 
 [features]
-default = []
+# TODO default enabled during dev. Should be: default = []
+default = ["google", "redis", "protobuf"]
 
 # Backends
 google = ["ya-gcp", "tracing", "parking_lot"]
+redis = ["tracing"]
 mock = ["async-channel", "parking_lot"]
 
 # Validators
@@ -36,6 +38,10 @@ protobuf = ["prost"]
 [[example]]
 name = "googlepubsub"
 required-features = ["google", "protobuf"]
+
+[[example]]
+name = "redis"
+required-features = ["redis", "protobuf"]
 
 [dependencies]
 async-trait = { version = "0.1" }
