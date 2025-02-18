@@ -145,9 +145,9 @@ async fn main() -> Result<(), Box<dyn StdError>> {
                 name: format!("Example Name #{}", i),
             };
 
-            input_sink.feed(message).await; // TODO googlepubsub handles an error here. Why?
+            input_sink.feed(message).await.unwrap(); // TODO googlepubsub handles an error here. Why?
         }
-        input_sink.flush().await; // TODO googlepubsub handles an error here. Why?
+        input_sink.flush().await.unwrap(); // TODO googlepubsub handles an error here. Why?
     }
 
     println!("Ingesting input messages, applying transformations, and publishing to destination");
@@ -197,14 +197,14 @@ async fn main() -> Result<(), Box<dyn StdError>> {
                     }
                     // TODO SW-19526 googlepubsub example differs here
                     // err => Box::<dyn StdError>::from(err),
-                    err => todo!(),
+                    err => panic!(),
                 })
             })
             .await?
     }
     if (output_sink.flush().await).is_err() {
         // TODO SW-19526 googlepubsub example differs here
-        todo!()
+        panic!()
     }
 
     println!("All messages matched and published successfully!");

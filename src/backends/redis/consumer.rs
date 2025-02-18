@@ -46,7 +46,7 @@ impl ConsumerClient {
         config: SubscriptionConfig<'_>,
     ) -> Result<(), RedisError> {
         // TODO SW-19526 Implement create_subscription
-        todo!();
+        Ok(())
     }
 
     pub async fn delete_subscription(
@@ -54,12 +54,14 @@ impl ConsumerClient {
         subscription: SubscriptionName<'_>,
     ) -> Result<(), RedisError> {
         // TODO SW-19526 Implement delete_subscription
-        todo!();
+        Ok(())
     }
 
     pub fn stream_subscription(&mut self, subscription: SubscriptionName<'_>) -> RedisStream {
         // TODO SW-19526 Implement stream_subscription
-        todo!()
+        // let subscription = self.format_subscription(subscription);
+        // PubSubStream(self.client.stream_subscription(subscription))
+        RedisStream
     }
 }
 
@@ -69,7 +71,7 @@ pub struct SubscriptionConfig<'s> {
     pub topic: TopicName<'s>,
 }
 
-pub struct RedisStream {}
+pub struct RedisStream;
 
 pub type PubSubMessage<T> = crate::consumer::AcknowledgeableMessage<AcknowledgeToken, T>;
 
@@ -89,7 +91,7 @@ impl stream::Stream for RedisStream {
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         // TODO SW-19526 Implement stream poll_next
-        todo!()
+        Poll::Pending
     }
 }
 
