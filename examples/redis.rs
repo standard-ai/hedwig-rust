@@ -145,9 +145,12 @@ async fn main() -> Result<(), Box<dyn StdError>> {
                 name: format!("Example Name #{}", i),
             };
 
-            input_sink.feed(message).await.unwrap(); // TODO googlepubsub handles an error here. Why?
+            // TODO googlepubsub error can be used with ? but this is not. Why?
+            input_sink.feed(message).await.unwrap();
         }
-        input_sink.flush().await.unwrap(); // TODO googlepubsub handles an error here. Why?
+
+        // TODO googlepubsub error can be used with ? but this is not. Why?
+        input_sink.flush().await.unwrap();
     }
 
     println!("Ingesting input messages, applying transformations, and publishing to destination");
@@ -202,8 +205,9 @@ async fn main() -> Result<(), Box<dyn StdError>> {
             })
             .await?
     }
+
+    // TODO SW-19526 googlepubsub example differs here
     if (output_sink.flush().await).is_err() {
-        // TODO SW-19526 googlepubsub example differs here
         panic!()
     }
 

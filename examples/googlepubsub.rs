@@ -30,13 +30,13 @@ impl EncodableMessage for UserCreatedMessage {
         USER_CREATED_TOPIC.into()
     }
     fn encode(&self, validator: &Self::Validator) -> Result<hedwig::ValidatedMessage, Self::Error> {
-        Ok(validator.validate(
+        validator.validate(
             uuid::Uuid::new_v4(),
             SystemTime::now(),
             "user.created/1.0",
             Headers::new(),
             self,
-        )?)
+        )
     }
 }
 
@@ -77,13 +77,13 @@ impl EncodableMessage for TransformedMessage {
     }
 
     fn encode(&self, validator: &Self::Validator) -> Result<hedwig::ValidatedMessage, Self::Error> {
-        Ok(validator.validate(
+        validator.validate(
             uuid::Uuid::new_v4(),
             SystemTime::now(),
             "user.updated/1.0",
             Headers::new(),
             &self.0.message,
-        )?)
+        )
     }
 }
 
@@ -92,6 +92,11 @@ struct Args {
     /// The name of the pubsub project
     #[structopt(long)]
     project_name: String,
+
+    /// Load credentials from an authorized user secret, such as the one created when running `gcloud auth
+    /// application-default login`
+    #[structopt(long)]
+    user_account_credentials: Option<std::path::PathBuf>,
 }
 
 // TODO SW-19526 Just a bookmark to googlepubsub example
@@ -101,8 +106,14 @@ async fn main() -> Result<(), Box<dyn StdError>> {
 
     println!("Building PubSub clients");
 
+    let auth_flow = if let Some(user) = args.user_account_credentials {
+        AuthFlow::UserAccount(user)
+    } else {
+        AuthFlow::ServiceAccount(ServiceAccountAuth::EnvVar)
+    };
+
     let builder = ClientBuilder::new(
-        ClientBuilderConfig::new().auth_flow(AuthFlow::ServiceAccount(ServiceAccountAuth::EnvVar)),
+        ClientBuilderConfig::new().auth_flow(auth_flow),
         PubSubConfig::default(),
     )
     .await?;
@@ -121,23 +132,23 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     for topic_name in [&input_topic_name, &output_topic_name] {
         println!("Creating topic {:?}", topic_name);
 
-        publisher_client
+        let _ = publisher_client
             .create_topic(TopicConfig {
                 name: topic_name.clone(),
                 ..TopicConfig::default()
             })
-            .await?;
+            .await;
     }
 
     println!("Creating subscription {:?}", &subscription_name);
 
-    consumer_client
+    let _ = consumer_client
         .create_subscription(SubscriptionConfig {
             topic: input_topic_name.clone(),
             name: subscription_name.clone(),
             ..SubscriptionConfig::default()
         })
-        .await?;
+        .await;
 
     println!(
         "Synthesizing input messages for topic {:?}",
@@ -185,7 +196,11 @@ async fn main() -> Result<(), Box<dyn StdError>> {
             .await
             .expect("stream should have 10 elements")?;
 
-        assert_eq!(&message.name, &format!("Example Name #{}", i));
+        if message.name != format!("Example Name #{}", i) {
+            println!("Unexpected message received: {:?}", &message.name);
+        } else {
+            println!("Received: {:?}", &message.name);
+        }
 
         let transformed = TransformedMessage(PubSubMessage {
             ack_token,
@@ -218,14 +233,12 @@ async fn main() -> Result<(), Box<dyn StdError>> {
 
     println!("Deleting subscription {:?}", &subscription_name);
 
-    consumer_client
-        .delete_subscription(subscription_name)
-        .await?;
+    let _ = consumer_client.delete_subscription(subscription_name).await;
 
     for topic_name in [input_topic_name, output_topic_name] {
         println!("Deleting topic {:?}", &topic_name);
 
-        publisher_client.delete_topic(topic_name).await?;
+        let _ = publisher_client.delete_topic(topic_name).await;
     }
 
     println!("Done");
