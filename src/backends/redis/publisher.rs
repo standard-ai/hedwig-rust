@@ -7,6 +7,7 @@ use futures_util::{
     sink::{Sink, SinkExt},
 };
 use pin_project::pin_project;
+use redis::AsyncCommands;
 use std::{borrow::Cow, fmt::Display};
 use std::{
     collections::{BTreeMap, VecDeque},
@@ -105,16 +106,25 @@ impl PublisherClient {
         Ok(())
     }
 
-    pub fn publisher(&self) -> Publisher {
-        Publisher {
-            client: self.clone(),
-        }
+    pub async fn publisher(&self) -> Publisher {
+        let con = self
+            .client
+            .get_multiplexed_async_connection()
+            .await
+            .unwrap();
+        // TODO SW-19526 sketch, just a simple test (works, just send a single message)
+        let mut con = con;
+        let key: &'static str = "hedwig:user-created";
+        let items: [(&str, &str); 1] = [("hedwig_payload", "")];
+        let id: String = con.xadd(key, "*", &items).await.unwrap();
+
+        Publisher { con }
     }
 }
 
 /// A publisher for sending messages to PubSub topics
 pub struct Publisher {
-    client: PublisherClient,
+    con: redis::aio::MultiplexedConnection,
 }
 
 impl<M, S> crate::publisher::Publisher<M, S> for Publisher
@@ -132,7 +142,7 @@ where
     ) -> Self::PublishSink {
         PublishSink {
             validator,
-            client: self.client,
+            con: self.con,
             _m: std::marker::PhantomData,
         }
     }
@@ -141,7 +151,7 @@ where
 #[pin_project]
 pub struct PublishSink<M: EncodableMessage, S: Sink<M>> {
     validator: M::Validator,
-    client: PublisherClient,
+    con: redis::aio::MultiplexedConnection,
     _m: std::marker::PhantomData<(M, S)>,
 }
 

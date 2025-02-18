@@ -137,8 +137,10 @@ async fn main() -> Result<(), Box<dyn StdError>> {
 
     {
         let validator = validators::ProstValidator::new();
-        let mut input_sink =
-            Publisher::<UserCreatedMessage>::publish_sink(publisher_client.publisher(), validator);
+        let mut input_sink = Publisher::<UserCreatedMessage>::publish_sink(
+            publisher_client.publisher().await,
+            validator,
+        );
 
         for i in 1..=10 {
             let message = UserCreatedMessage {
@@ -162,7 +164,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
         ));
 
     let mut output_sink = Publisher::<TransformedMessage, _>::publish_sink_with_responses(
-        publisher_client.publisher(),
+        publisher_client.publisher().await,
         validators::ProstValidator::new(),
         futures_util::sink::unfold((), |_, message: TransformedMessage| async move {
             // if the output is successfully sent, ack the input to mark it as processed
