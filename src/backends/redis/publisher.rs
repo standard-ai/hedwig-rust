@@ -96,10 +96,12 @@ pub struct TopicConfig<'s> {
 
 impl PublisherClient {
     pub async fn create_topic(&mut self, topic: TopicConfig<'_>) -> Result<(), RedisError> {
+        // TODO SW-19526 Implement create_topic
         todo!()
     }
 
     pub async fn delete_topic(&mut self, topic: TopicName<'_>) -> Result<(), RedisError> {
+        // TODO SW-19526 Implement delete_topic
         todo!()
     }
 
@@ -151,18 +153,22 @@ where
     type Error = PublishError<M, S>;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
+        // TODO SW-19526 Implement publisher poll_ready
         todo!()
     }
 
     fn start_send(self: Pin<&mut Self>, item: M) -> Result<(), Self::Error> {
+        // TODO SW-19526 Implement publisher start_send
         todo!()
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
+        // TODO SW-19526 Implement publisher poll_flush
         todo!()
     }
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
+        // TODO SW-19526 Implement publisher poll_close
         todo!()
     }
 }

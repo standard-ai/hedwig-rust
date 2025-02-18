@@ -45,6 +45,7 @@ impl ConsumerClient {
         &mut self,
         config: SubscriptionConfig<'_>,
     ) -> Result<(), RedisError> {
+        // TODO SW-19526 Implement create_subscription
         todo!();
     }
 
@@ -52,10 +53,12 @@ impl ConsumerClient {
         &mut self,
         subscription: SubscriptionName<'_>,
     ) -> Result<(), RedisError> {
+        // TODO SW-19526 Implement delete_subscription
         todo!();
     }
 
     pub fn stream_subscription(&mut self, subscription: SubscriptionName<'_>) -> RedisStream {
+        // TODO SW-19526 Implement stream_subscription
         todo!()
     }
 }
@@ -85,6 +88,7 @@ impl stream::Stream for RedisStream {
         Result<AcknowledgeableMessage<AcknowledgeToken, ValidatedMessage>, RedisStreamError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
+        // TODO SW-19526 Implement stream poll_next
         todo!()
     }
 }
@@ -97,24 +101,28 @@ pub enum RedisStreamError {
     Stream(#[from] redis::RedisError),
 }
 
+// TODO SW-19526 AcknowledgeToken
 #[derive(Debug)]
 pub struct AcknowledgeToken;
 
 #[async_trait::async_trait]
 impl crate::consumer::AcknowledgeToken for AcknowledgeToken {
-    type AckError = RedisError; // TODO
-    type NackError = RedisError; // TODO
-    type ModifyError = RedisError; // TODO
+    type AckError = RedisError; // TODO SW-19526 Ack specific error
+    type NackError = RedisError; // TODO SW-19526 Nack specific error
+    type ModifyError = RedisError; // TODO SW-19526 Modify specific error
 
     async fn ack(self) -> Result<(), Self::AckError> {
+        // TODO SW-19526 AcknowledgeToken ack
         Ok(())
     }
 
     async fn nack(self) -> Result<(), Self::NackError> {
         Ok(())
+        // TODO SW-19526 AcknowledgeToken nack
     }
 
     async fn modify_deadline(&mut self, _seconds: u32) -> Result<(), Self::ModifyError> {
+        // TODO SW-19526 AcknowledgeToken modify_deadline
         Ok(())
     }
 }
