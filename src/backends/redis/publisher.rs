@@ -2,6 +2,7 @@
 #![allow(unused_imports)]
 
 use crate::{EncodableMessage, Topic, ValidatedMessage};
+use base64::Engine;
 use futures_util::{
     ready,
     sink::{Sink, SinkExt},
@@ -35,6 +36,15 @@ impl PublisherClient {
 #[derive(Debug, thiserror::Error)]
 pub enum PublishError<M: EncodableMessage> {
     Publish(M),
+
+    /// An error from validating the given message
+    InvalidMessage {
+        /// The cause of the error
+        cause: M::Error,
+
+        /// The message which failed to be validated
+        message: M,
+    },
 }
 
 pub struct TopicConfig<'s> {
@@ -65,7 +75,9 @@ impl PublisherClient {
         tokio::spawn(async move {
             while let Some(message) = rx.recv().await {
                 let key: &'static str = "hedwig:user-created";
-                let items: [(&str, &str); 1] = [("hedwig_payload", "")];
+                // Encode as base64, because Redis needs it
+                let payload = base64::engine::general_purpose::STANDARD.encode(message);
+                let items: [(&str, &str); 1] = [("hedwig_payload", &payload)];
                 let _: Result<(), _> = con.xadd(key, "*", &items).await;
             }
         });
@@ -118,15 +130,30 @@ where
         Poll::Ready(Ok(()))
     }
 
-    fn start_send(self: Pin<&mut Self>, item: M) -> Result<(), Self::Error> {
+    fn start_send(mut self: Pin<&mut Self>, message: M) -> Result<(), Self::Error> {
         // TODO SW-19526 trivial mpsc implementation
         // TODO SW-19526 encode
         use tokio::sync::mpsc::error::TrySendError;
+        let this = self.as_mut().project();
+
         let buf = Vec::<u8>::new();
+
+        let validated = match message.encode(this.validator) {
+            Ok(validated_msg) => validated_msg,
+            Err(err) => {
+                return Err(PublishError::InvalidMessage {
+                    cause: err,
+                    message,
+                })
+            }
+        };
+
+        let bytes = validated.into_data();
+
         self.get_mut()
             .sender
-            .try_send(buf)
-            .map_err(|_| PublishError::Publish(item))
+            .try_send(bytes.to_vec())
+            .map_err(|_| PublishError::Publish(message))
     }
 
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {

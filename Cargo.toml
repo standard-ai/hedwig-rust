@@ -28,7 +28,7 @@ default = ["redis", "mock", "google", "protobuf", "json-schema"]
 
 # Backends
 google = ["dep:ya-gcp", "dep:tracing", "dep:parking_lot"]
-redis = ["dep:tracing", "dep:async-channel", "dep:parking_lot", "dep:redis", "dep:tokio"]
+redis = ["dep:tracing", "dep:async-channel", "dep:parking_lot", "dep:redis", "dep:tokio", "dep:base64"]
 mock = ["dep:async-channel", "dep:parking_lot"]
 
 # Validators
@@ -71,6 +71,7 @@ tracing = { version = "0.1.37", optional = true }
 valico = { version = "^3.2", optional = true, default-features = false }
 ya-gcp = { version = "0.11", features = ["pubsub"], optional = true }
 redis = { version = "0.29.0", features = ["streams", "tokio-comp"], optional = true }
+base64 = { version = "0.22.1", optional = true }
 
 # TODO SW-19526 Needed for dirty spawn_blocking implementation
 tokio = { version = "1", features = ["macros", "rt"], optional = true}
