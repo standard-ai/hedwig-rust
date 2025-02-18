@@ -4,7 +4,7 @@ use hedwig::{
         ClientBuilder, ClientBuilderConfig, PubSubMessage, PublishError, SubscriptionConfig,
         SubscriptionName, TopicConfig, TopicName,
     },
-    validators, Consumer, DecodableMessage, EncodableMessage, Headers, MessageStream, Publisher,
+    validators, Consumer, DecodableMessage, EncodableMessage, Headers, Publisher,
 };
 use std::{error::Error as StdError, time::SystemTime};
 use structopt::StructOpt;
@@ -26,13 +26,13 @@ impl EncodableMessage for UserCreatedMessage {
         USER_CREATED_TOPIC.into()
     }
     fn encode(&self, validator: &Self::Validator) -> Result<hedwig::ValidatedMessage, Self::Error> {
-        Ok(validator.validate(
+        validator.validate(
             uuid::Uuid::new_v4(),
             SystemTime::now(),
             "user.created/1.0",
             Headers::new(),
             self,
-        )?)
+        )
     }
 }
 
@@ -73,13 +73,13 @@ impl EncodableMessage for TransformedMessage {
     }
 
     fn encode(&self, validator: &Self::Validator) -> Result<hedwig::ValidatedMessage, Self::Error> {
-        Ok(validator.validate(
+        validator.validate(
             uuid::Uuid::new_v4(),
             SystemTime::now(),
             "user.updated/1.0",
             Headers::new(),
             &self.0.message,
-        )?)
+        )
     }
 }
 
