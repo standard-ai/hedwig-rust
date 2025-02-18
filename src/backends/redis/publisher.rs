@@ -32,63 +32,9 @@ impl PublisherClient {
 }
 
 /// Errors which can occur while publishing a message
-#[derive(Debug)]
-pub enum PublishError<M: EncodableMessage, E> {
-    /// An error from publishing
-    Publish {
-        /// The cause of the error
-        cause: redis::RedisError,
-
-        /// The batch of messages which failed to be published
-        messages: Vec<M>,
-    },
-
-    /// An error from submitting a successfully published message to the user-provided response
-    /// sink
-    Response(E),
-
-    /// An error from validating the given message
-    InvalidMessage {
-        /// The cause of the error
-        cause: M::Error,
-
-        /// The message which failed to be validated
-        message: M,
-    },
-}
-
-impl<M: EncodableMessage, E> fmt::Display for PublishError<M, E>
-where
-    M::Error: fmt::Display,
-    E: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            PublishError::Publish { messages, .. } => f.write_fmt(format_args!(
-                "could not publish {} messages",
-                messages.len()
-            )),
-            PublishError::Response(..) => f.write_str(
-                "could not forward response for a successfully published message to the sink",
-            ),
-            PublishError::InvalidMessage { .. } => f.write_str("could not validate message"),
-        }
-    }
-}
-
-impl<M: EncodableMessage, E> std::error::Error for PublishError<M, E>
-where
-    M: fmt::Debug,
-    M::Error: std::error::Error + 'static,
-    E: std::error::Error + 'static,
-{
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            PublishError::Publish { cause, .. } => Some(cause as &_),
-            PublishError::Response(cause) => Some(cause as &_),
-            PublishError::InvalidMessage { cause, .. } => Some(cause as &_),
-        }
-    }
+#[derive(Debug, thiserror::Error)]
+pub enum PublishError<M: EncodableMessage> {
+    Publish(M),
 }
 
 pub struct TopicConfig<'s> {
@@ -107,24 +53,30 @@ impl PublisherClient {
     }
 
     pub async fn publisher(&self) -> Publisher {
-        let con = self
+        let mut con = self
             .client
             .get_multiplexed_async_connection()
             .await
             .unwrap();
-        // TODO SW-19526 sketch, just a simple test (works, just send a single message)
-        let mut con = con;
-        let key: &'static str = "hedwig:user-created";
-        let items: [(&str, &str); 1] = [("hedwig_payload", "")];
-        let id: String = con.xadd(key, "*", &items).await.unwrap();
 
-        Publisher { con }
+        // TODO SW-19526 sketch, simple implementation with channels
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1000);
+
+        tokio::spawn(async move {
+            while let Some(message) = rx.recv().await {
+                let key: &'static str = "hedwig:user-created";
+                let items: [(&str, &str); 1] = [("hedwig_payload", "")];
+                let _: Result<(), _> = con.xadd(key, "*", &items).await;
+            }
+        });
+
+        Publisher { sender: tx }
     }
 }
 
 /// A publisher for sending messages to PubSub topics
 pub struct Publisher {
-    con: redis::aio::MultiplexedConnection,
+    sender: tokio::sync::mpsc::Sender<Vec<u8>>,
 }
 
 impl<M, S> crate::publisher::Publisher<M, S> for Publisher
@@ -132,7 +84,7 @@ where
     M: EncodableMessage + Send + 'static,
     S: Sink<M> + Send + 'static,
 {
-    type PublishError = PublishError<M, S>;
+    type PublishError = PublishError<M>;
     type PublishSink = PublishSink<M, S>;
 
     fn publish_sink_with_responses(
@@ -142,7 +94,7 @@ where
     ) -> Self::PublishSink {
         PublishSink {
             validator,
-            con: self.con,
+            sender: self.sender.clone(),
             _m: std::marker::PhantomData,
         }
     }
@@ -151,7 +103,7 @@ where
 #[pin_project]
 pub struct PublishSink<M: EncodableMessage, S: Sink<M>> {
     validator: M::Validator,
-    con: redis::aio::MultiplexedConnection,
+    sender: tokio::sync::mpsc::Sender<Vec<u8>>,
     _m: std::marker::PhantomData<(M, S)>,
 }
 
@@ -160,25 +112,30 @@ where
     M: EncodableMessage + Send + 'static,
     S: Sink<M> + Send + 'static,
 {
-    type Error = PublishError<M, S>;
+    type Error = PublishError<M>;
 
-    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
-        // TODO SW-19526 Implement publisher poll_ready
+    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
     }
 
     fn start_send(self: Pin<&mut Self>, item: M) -> Result<(), Self::Error> {
-        // TODO SW-19526 Implement publisher start_send
-        Ok(())
+        // TODO SW-19526 trivial mpsc implementation
+        // TODO SW-19526 encode
+        use tokio::sync::mpsc::error::TrySendError;
+        let buf = Vec::<u8>::new();
+        self.get_mut()
+            .sender
+            .try_send(buf)
+            .map_err(|_| PublishError::Publish(item))
     }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
-        // TODO SW-19526 Implement publisher poll_flush
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        // TODO SW-19526 trivial mpsc implementation
         Poll::Ready(Ok(()))
     }
 
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
-        // TODO SW-19526 Implement publisher poll_close
-        Poll::Pending
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        // TODO SW-19526 trivial mpsc implementation
+        Poll::Ready(Ok(()))
     }
 }

@@ -189,23 +189,12 @@ async fn main() -> Result<(), Box<dyn StdError>> {
             },
         });
 
-        output_sink
+        let _ = output_sink
             .feed(transformed)
-            .or_else(|publish_error| async move {
-                // if publishing fails, nack the failed messages to allow later retries
-                Err(match publish_error {
-                    PublishError::Publish { cause, messages } => {
-                        for failed_transform in messages {
-                            failed_transform.0.nack().await?;
-                        }
-                        Box::<dyn StdError>::from(cause)
-                    }
-                    // TODO SW-19526 googlepubsub example differs here
-                    // err => Box::<dyn StdError>::from(err),
-                    _err => panic!(),
-                })
+            .inspect_err(|publish_error| {
+                println!("Error: {:?}", publish_error);
             })
-            .await?
+            .await;
     }
 
     // TODO SW-19526 googlepubsub example differs here
