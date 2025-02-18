@@ -1,8 +1,8 @@
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
 use hedwig::{
     redis::{
-        ClientBuilder, ClientBuilderConfig, PubSubMessage, PublishError, SubscriptionConfig,
-        SubscriptionName, TopicConfig, TopicName,
+        ClientBuilder, ClientBuilderConfig, PubSubMessage, SubscriptionConfig, SubscriptionName,
+        TopicConfig, TopicName,
     },
     validators, Consumer, DecodableMessage, EncodableMessage, Headers, Publisher,
 };

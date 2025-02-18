@@ -73,11 +73,12 @@ impl PublisherClient {
         let (tx, mut rx) = tokio::sync::mpsc::channel(1000);
 
         tokio::spawn(async move {
-            while let Some(message) = rx.recv().await {
-                let key: &'static str = "hedwig:user-created";
+            while let Some(EncodedMessage { topic, data }) = rx.recv().await {
+                let key = format!("hedwig:{}", topic);
                 // Encode as base64, because Redis needs it
-                let payload = base64::engine::general_purpose::STANDARD.encode(message);
+                let payload = base64::engine::general_purpose::STANDARD.encode(data);
                 let items: [(&str, &str); 1] = [("hedwig_payload", &payload)];
+                // TODO SW-19526 Error should be handled
                 let _: Result<(), _> = con.xadd(key, "*", &items).await;
             }
         });
@@ -88,7 +89,7 @@ impl PublisherClient {
 
 /// A publisher for sending messages to PubSub topics
 pub struct Publisher {
-    sender: tokio::sync::mpsc::Sender<Vec<u8>>,
+    sender: tokio::sync::mpsc::Sender<EncodedMessage>,
 }
 
 impl<M, S> crate::publisher::Publisher<M, S> for Publisher
@@ -115,7 +116,7 @@ where
 #[pin_project]
 pub struct PublishSink<M: EncodableMessage, S: Sink<M>> {
     validator: M::Validator,
-    sender: tokio::sync::mpsc::Sender<Vec<u8>>,
+    sender: tokio::sync::mpsc::Sender<EncodedMessage>,
     _m: std::marker::PhantomData<(M, S)>,
 }
 
@@ -136,8 +137,6 @@ where
         use tokio::sync::mpsc::error::TrySendError;
         let this = self.as_mut().project();
 
-        let buf = Vec::<u8>::new();
-
         let validated = match message.encode(this.validator) {
             Ok(validated_msg) => validated_msg,
             Err(err) => {
@@ -149,10 +148,14 @@ where
         };
 
         let bytes = validated.into_data();
+        let encoded_message = EncodedMessage {
+            topic: message.topic().to_string(),
+            data: bytes,
+        };
 
         self.get_mut()
             .sender
-            .try_send(bytes.to_vec())
+            .try_send(encoded_message)
             .map_err(|_| PublishError::Publish(message))
     }
 
@@ -165,4 +168,9 @@ where
         // TODO SW-19526 trivial mpsc implementation
         Poll::Ready(Ok(()))
     }
+}
+
+struct EncodedMessage {
+    topic: String,
+    data: bytes::Bytes,
 }
