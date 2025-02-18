@@ -36,12 +36,18 @@ impl ClientBuilder {
 }
 
 impl ClientBuilder {
-    pub async fn build_consumer(&self) -> Result<ConsumerClient, RedisError> {
+    pub async fn build_consumer(
+        &self,
+        publisher_id: impl Into<String>,
+    ) -> Result<ConsumerClient, RedisError> {
         let client = redis::Client::open(self.config.endpoint.as_str())?;
         Ok(ConsumerClient::from_client(client))
     }
 
-    pub async fn build_publisher(&self) -> Result<PublisherClient, RedisError> {
+    pub async fn build_publisher(
+        &self,
+        publisher_id: impl Into<String>,
+    ) -> Result<PublisherClient, RedisError> {
         let client = redis::Client::open(self.config.endpoint.as_str())?;
         Ok(PublisherClient::from_client(client))
     }

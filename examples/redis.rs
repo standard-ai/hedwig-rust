@@ -108,8 +108,8 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     let output_topic_name = TopicName::new(USER_UPDATED_TOPIC);
     const APP_NAME: &str = "user-metadata-updater";
 
-    let mut publisher_client = builder.build_publisher().await?;
-    let mut consumer_client = builder.build_consumer().await?;
+    let mut publisher_client = builder.build_publisher(APP_NAME).await?;
+    let mut consumer_client = builder.build_consumer(APP_NAME).await?;
 
     for topic_name in [&input_topic_name, &output_topic_name] {
         println!("Creating topic {:?}", topic_name);
@@ -197,7 +197,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
                     }
                     // TODO SW-19526 googlepubsub example differs here
                     // err => Box::<dyn StdError>::from(err),
-                    err => panic!(),
+                    _err => panic!(),
                 })
             })
             .await?
