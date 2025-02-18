@@ -138,19 +138,14 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     {
         let validator = validators::ProstValidator::new();
         let mut input_sink =
-            Publisher::<UserCreatedMessage>::publish_sink(
-                publisher_client
-                .publisher()
-                , validator);
+            Publisher::<UserCreatedMessage>::publish_sink(publisher_client.publisher(), validator);
 
         for i in 1..=10 {
             let message = UserCreatedMessage {
                 name: format!("Example Name #{}", i),
             };
 
-            input_sink
-                .feed(message)
-                .await; // TODO googlepubsub handles an error here. Why?
+            input_sink.feed(message).await; // TODO googlepubsub handles an error here. Why?
         }
         input_sink.flush().await; // TODO googlepubsub handles an error here. Why?
     }
@@ -200,13 +195,17 @@ async fn main() -> Result<(), Box<dyn StdError>> {
                         }
                         Box::<dyn StdError>::from(cause)
                     }
-                    err => todo!(), // TODO SW-19526 googlepubsub example differs here
+                    // TODO SW-19526 googlepubsub example differs here
                     // err => Box::<dyn StdError>::from(err),
+                    err => todo!(),
                 })
             })
             .await?
     }
-    output_sink.flush().await?;
+    if (output_sink.flush().await).is_err() {
+        // TODO SW-19526 googlepubsub example differs here
+        todo!()
+    }
 
     println!("All messages matched and published successfully!");
 
