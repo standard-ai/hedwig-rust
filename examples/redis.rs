@@ -138,16 +138,21 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     {
         let validator = validators::ProstValidator::new();
         let mut input_sink =
-            Publisher::<UserCreatedMessage>::publish_sink(publisher_client.publisher(), validator);
+            Publisher::<UserCreatedMessage>::publish_sink(
+                publisher_client
+                .publisher()
+                , validator);
 
         for i in 1..=10 {
             let message = UserCreatedMessage {
                 name: format!("Example Name #{}", i),
             };
 
-            input_sink.feed(message).await?;
+            input_sink
+                .feed(message)
+                .await; // TODO googlepubsub handles an error here. Why?
         }
-        input_sink.flush().await?;
+        input_sink.flush().await; // TODO googlepubsub handles an error here. Why?
     }
 
     println!("Ingesting input messages, applying transformations, and publishing to destination");
@@ -195,7 +200,8 @@ async fn main() -> Result<(), Box<dyn StdError>> {
                         }
                         Box::<dyn StdError>::from(cause)
                     }
-                    err => Box::<dyn StdError>::from(err),
+                    err => todo!(), // TODO SW-19526 googlepubsub example differs here
+                    // err => Box::<dyn StdError>::from(err),
                 })
             })
             .await?
