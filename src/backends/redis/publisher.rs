@@ -52,12 +52,12 @@ pub struct TopicConfig<'s> {
 }
 
 impl PublisherClient {
-    pub async fn create_topic(&mut self, topic: TopicConfig<'_>) -> Result<(), RedisError> {
+    pub async fn create_topic(&mut self, _topic: TopicConfig<'_>) -> Result<(), RedisError> {
         // TODO SW-19526 Implement create_topic
         Ok(())
     }
 
-    pub async fn delete_topic(&mut self, topic: TopicName<'_>) -> Result<(), RedisError> {
+    pub async fn delete_topic(&mut self, _topic: TopicName<'_>) -> Result<(), RedisError> {
         // TODO SW-19526 Implement delete_topic
         Ok(())
     }
@@ -103,7 +103,7 @@ where
     fn publish_sink_with_responses(
         self,
         validator: M::Validator,
-        response_sink: S,
+        _response_sink: S,
     ) -> Self::PublishSink {
         PublishSink {
             validator,

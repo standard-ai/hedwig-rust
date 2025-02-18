@@ -30,13 +30,11 @@ impl<'s> SubscriptionName<'s> {
 }
 
 #[derive(Debug, Clone)]
-pub struct ConsumerClient {
-    client: redis::Client,
-}
+pub struct ConsumerClient;
 
 impl ConsumerClient {
-    pub fn from_client(client: redis::Client) -> Self {
-        ConsumerClient { client }
+    pub fn from_client(_client: redis::Client) -> Self {
+        ConsumerClient
     }
 }
 
