@@ -147,6 +147,7 @@ where
             }
         };
 
+        // TODO SW-19526 Better create an intermediate sink for encoding, see googlepubsub
         let bytes = validated.into_data();
         let encoded_message = EncodedMessage {
             topic: message.topic().to_string(),
