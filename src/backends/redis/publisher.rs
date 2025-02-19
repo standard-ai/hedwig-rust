@@ -35,7 +35,14 @@ impl PublisherClient {
 /// Errors which can occur while publishing a message
 #[derive(Debug, thiserror::Error)]
 pub enum PublishError<M: EncodableMessage> {
-    Publish(M),
+    /// An error from publishing
+    Publish {
+        /// The cause of the error
+        cause: Box<dyn std::error::Error + Send + Sync>,
+
+        /// The message which failed to be published
+        message: M,
+    },
 
     /// An error from validating the given message
     InvalidMessage {
@@ -156,7 +163,7 @@ where
         self.get_mut()
             .sender
             .try_send(encoded_message)
-            .map_err(|_| PublishError::Publish(message))
+            .map_err(|cause| PublishError::Publish { cause: cause.into(), message })
     }
 
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {

@@ -99,9 +99,10 @@ struct Args {
     user_account_credentials: Option<std::path::PathBuf>,
 }
 
-// TODO SW-19526 Just a bookmark to googlepubsub example
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn StdError>> {
+    tracing_subscriber::fmt::init();
+
     let args = Args::from_args();
 
     println!("Building PubSub clients");
