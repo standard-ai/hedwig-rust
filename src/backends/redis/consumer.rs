@@ -6,6 +6,7 @@ use redis::{
     streams::{StreamReadOptions, StreamReadReply},
     AsyncCommands, RedisResult,
 };
+use std::error::Error as _;
 use std::{
     borrow::Cow,
     fmt::Display,
@@ -15,7 +16,7 @@ use std::{
     task::{Context, Poll},
     time::{Duration, SystemTime},
 };
-use tracing::debug;
+use tracing::{debug, warn};
 use uuid::Uuid;
 
 use super::TopicName;
@@ -135,12 +136,36 @@ impl ConsumerClient {
         // let subscription = self.format_subscription(subscription);
         //
         // PubSubStream(self.client.stream_subscription(subscription, stream_config))
-        let con = self
+        let mut con = self
             .client
             .get_multiplexed_async_connection()
             .await
             .unwrap();
-        RedisStream { con }
+        let stream_name = "hedwig:user.created".to_string();
+        let group_name = "test";
+        let consumer_name = "asd-asd-asd";
+        let id = "0";
+
+        match con.xgroup_create(stream_name.clone(), group_name, id).await {
+            Ok(()) => debug!(
+                group_name = group_name,
+                stream_name = stream_name,
+                "redis consumer group created"
+            ),
+            Err(err) => warn!(
+                err = err.to_string(),
+                group_name = group_name,
+                stream_name = stream_name,
+                "cannot create consumer group"
+            ),
+        }
+
+        let stream_read_options = StreamReadOptions::default().group(group_name, consumer_name);
+        RedisStream {
+            con,
+            stream_name,
+            stream_read_options,
+        }
     }
 }
 #[derive(Debug, Clone)]
@@ -188,6 +213,8 @@ type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 #[pin_project]
 pub struct RedisStream {
     con: redis::aio::MultiplexedConnection,
+    stream_name: String,
+    stream_read_options: StreamReadOptions,
 }
 
 impl stream::Stream for RedisStream {
@@ -195,10 +222,11 @@ impl stream::Stream for RedisStream {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         let this = self.as_mut().project();
-        let opts = StreamReadOptions::default().count(1);
+        let stream_name = this.stream_name.as_str();
+        let opts = this.stream_read_options;
         let result: Poll<Option<Result<RedisMessage<ValidatedMessage>, RedisStreamError>>> = this
             .con
-            .xread_options(&["hedwig:user.created"], &[">"], &opts)
+            .xread_options(&[stream_name], &[">"], &opts)
             .poll_unpin(cx)
             .map(|result: RedisResult<StreamReadReply>| result.map(redis_to_hedwig))
             .map(|msg| match msg {

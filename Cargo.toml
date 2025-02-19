@@ -86,6 +86,7 @@ tonic = "0.10"
 serde = { version = "1", features = ["derive"] }
 ya-gcp = { version = "0.11", features = ["pubsub", "emulators"] }
 structopt = "0.3"
+tracing-subscriber = "0.3.19"
 
 [package.metadata.docs.rs]
 all-features = true

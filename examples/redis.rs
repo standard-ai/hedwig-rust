@@ -92,6 +92,8 @@ struct Args {
 // TODO SW-19526 Recreate the example from googlepubsub with redis
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn StdError>> {
+    tracing_subscriber::fmt::init();
+
     let args = Args::from_args();
 
     println!("Building PubSub clients");
