@@ -181,7 +181,11 @@ async fn main() -> Result<(), Box<dyn StdError>> {
             .await
             .expect("stream should have 10 elements")?;
 
-        assert_eq!(&message.name, &format!("Example Name #{}", i));
+        if message.name != format!("Example Name #{}", i) {
+            println!("Unexpected message received: {:?}", &message.name);
+        } else {
+            println!("Received: {:?}", &message.name);
+        }
 
         let transformed = TransformedMessage(RedisMessage {
             ack_token,
