@@ -1,6 +1,6 @@
 use crate::{Headers, ValidatedMessage};
 use async_trait::async_trait;
-use futures_util::{stream, FutureExt};
+use futures_util::{stream, FutureExt, TryFutureExt};
 use pin_project::pin_project;
 use redis::{
     streams::{StreamReadOptions, StreamReadReply},
@@ -16,7 +16,7 @@ use std::{
     task::{Context, Poll},
     time::{Duration, SystemTime},
 };
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use super::TopicName;
@@ -109,14 +109,46 @@ impl ConsumerClient {
 }
 
 impl ConsumerClient {
-    /// Create a new PubSub subscription
-    ///
-    /// See the GCP documentation on subscriptions [here](https://cloud.google.com/pubsub/docs/subscriber)
     pub async fn create_subscription(
         &mut self,
         config: SubscriptionConfig<'_>,
     ) -> Result<(), redis::RedisError> {
-        // TODO
+        let mut con = self
+            .client
+            .get_multiplexed_async_connection()
+            .await
+            .unwrap();
+        let topic = config.topic.0.to_string();
+        let stream_name = format!("hedwig:{topic}");
+        let group_name = "test";
+        let id = "0";
+
+        debug!(
+            topic = topic,
+            stream_name = stream_name,
+            "create_subscription"
+        );
+        debug!(
+            "xgroup_create_mkstream({:?}, {:?}, {:?}",
+            stream_name, group_name, id
+        );
+
+        match con
+            .xgroup_create_mkstream(stream_name.clone(), group_name, id)
+            .await
+        {
+            Ok(()) => debug!(
+                group_name = group_name,
+                stream_name = stream_name,
+                "redis consumer group created"
+            ),
+            Err(err) => warn!(
+                err = err.to_string(),
+                group_name = group_name,
+                stream_name = stream_name,
+                "cannot create consumer group"
+            ),
+        }
         Ok(())
     }
 
@@ -133,38 +165,73 @@ impl ConsumerClient {
 
     /// Connect to PubSub and start streaming messages from the given subscription
     pub async fn stream_subscription(&mut self, subscription: SubscriptionName<'_>) -> RedisStream {
-        // let subscription = self.format_subscription(subscription);
-        //
-        // PubSubStream(self.client.stream_subscription(subscription, stream_config))
-        let mut con = self
+        let con = self
             .client
             .get_multiplexed_async_connection()
             .await
             .unwrap();
-        let stream_name = "hedwig:user.created".to_string();
+
+        let topic = "user.created";
+        let stream_name = format!("hedwig:{topic}");
         let group_name = "test";
         let consumer_name = "asd-asd-asd";
-        let id = "0";
-
-        match con.xgroup_create(stream_name.clone(), group_name, id).await {
-            Ok(()) => debug!(
-                group_name = group_name,
-                stream_name = stream_name,
-                "redis consumer group created"
-            ),
-            Err(err) => warn!(
-                err = err.to_string(),
-                group_name = group_name,
-                stream_name = stream_name,
-                "cannot create consumer group"
-            ),
-        }
 
         let stream_read_options = StreamReadOptions::default().group(group_name, consumer_name);
+
+        debug!("Created stream: {stream_name}");
+
+        let receiver = {
+            let mut con = self
+                .client
+                .get_multiplexed_async_connection()
+                .await
+                .unwrap();
+
+            // TODO SW-19526 sketch, simple implementation with channels
+            let (tx, rx) = tokio::sync::mpsc::channel(1000);
+
+            let stream_name = stream_name.clone();
+            let stream_read_options = StreamReadOptions::default().group(group_name, consumer_name);
+            tokio::spawn(async move {
+                loop {
+                    // Read from the stream
+                    let result: RedisResult<StreamReadReply> = con
+                        .xread_options(&[&stream_name], &[">"], &stream_read_options)
+                        .await;
+
+                    match result {
+                        Ok(entry) => {
+                            for stream_key in entry.keys {
+                                for message in stream_key.ids {
+                                    // TODO Do not ack immediately, use ack token instead
+                                    let _: Result<(), _> =
+                                        con.xack(&stream_name, group_name, &[&message.id]).await;
+
+                                    if let Some(redis::Value::BulkString(vec)) =
+                                        message.map.get("hedwig_payload")
+                                    {
+                                        tx.send(vec.clone()).await.unwrap()
+                                    } else {
+                                        warn!(message = ?message, "Unexpected message");
+                                    }
+                                }
+                            }
+                        }
+                        Err(err) => {
+                            warn!(err = ?err, "Stream error");
+                        }
+                    }
+                }
+            });
+
+            rx
+        };
+
         RedisStream {
             con,
             stream_name,
             stream_read_options,
+            receiver,
         }
     }
 }
@@ -215,28 +282,41 @@ pub struct RedisStream {
     con: redis::aio::MultiplexedConnection,
     stream_name: String,
     stream_read_options: StreamReadOptions,
+    receiver: tokio::sync::mpsc::Receiver<Vec<u8>>,
 }
 
 impl stream::Stream for RedisStream {
     type Item = Result<RedisMessage<ValidatedMessage>, RedisStreamError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
-        let this = self.as_mut().project();
-        let stream_name = this.stream_name.as_str();
-        let opts = this.stream_read_options;
-        let result: Poll<Option<Result<RedisMessage<ValidatedMessage>, RedisStreamError>>> = this
-            .con
-            .xread_options(&[stream_name], &[">"], &opts)
-            .poll_unpin(cx)
-            .map(|result: RedisResult<StreamReadReply>| result.map(redis_to_hedwig))
-            .map(|msg| match msg {
-                Ok(Ok(validated_message)) => Some(Ok(RedisMessage {
-                    ack_token: AcknowledgeToken,
-                    message: validated_message,
-                })),
-                _ => todo!(),
-            });
-        result
+        Poll::Pending
+        // let this = self.as_mut().project();
+        // let stream_name = this.stream_name.as_str();
+        // let opts = this.stream_read_options;
+        // debug!(stream_name = stream_name, opts = ?opts, "poll_next");
+        // let result: Poll<Option<Result<RedisMessage<ValidatedMessage>, RedisStreamError>>> = this
+        //     .con
+        //     .xread_options(&[stream_name], &[">"], opts)
+        //     .inspect_err(|err| {
+        //         dbg!(err);
+        //     })
+        //     .inspect(|x| {
+        //         dbg!(x);
+        //     })
+        //     .poll_unpin(cx)
+        //     .map(|result: RedisResult<StreamReadReply>| {
+        //         result.map(redis_to_hedwig).inspect_err(|err| {
+        //             dbg!(&err);
+        //         })
+        //     })
+        //     .map(|msg| match msg {
+        //         Ok(Ok(validated_message)) => Some(Ok(RedisMessage {
+        //             ack_token: AcknowledgeToken,
+        //             message: validated_message,
+        //         })),
+        //         _ => todo!(),
+        //     });
+        // result
     }
 }
 
