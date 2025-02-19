@@ -1,7 +1,11 @@
 use crate::{Headers, ValidatedMessage};
 use async_trait::async_trait;
-use futures_util::stream;
+use futures_util::{stream, FutureExt};
 use pin_project::pin_project;
+use redis::{
+    streams::{StreamReadOptions, StreamReadReply},
+    AsyncCommands, RedisResult,
+};
 use std::{
     borrow::Cow,
     fmt::Display,
@@ -127,14 +131,16 @@ impl ConsumerClient {
     }
 
     /// Connect to PubSub and start streaming messages from the given subscription
-    pub fn stream_subscription(
-        &mut self,
-        subscription: SubscriptionName<'_>,
-    ) -> RedisStream {
+    pub async fn stream_subscription(&mut self, subscription: SubscriptionName<'_>) -> RedisStream {
         // let subscription = self.format_subscription(subscription);
         //
         // PubSubStream(self.client.stream_subscription(subscription, stream_config))
-        todo!()
+        let con = self
+            .client
+            .get_multiplexed_async_connection()
+            .await
+            .unwrap();
+        RedisStream { con }
     }
 }
 #[derive(Debug, Clone)]
@@ -179,24 +185,37 @@ type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 /// A stream of messages from a subscription
 ///
 /// Created by [`ConsumerClient::stream_subscription`]
-// #[pin_project]
-pub struct RedisStream {}
+#[pin_project]
+pub struct RedisStream {
+    con: redis::aio::MultiplexedConnection,
+}
 
 impl stream::Stream for RedisStream {
     type Item = Result<RedisMessage<ValidatedMessage>, RedisStreamError>;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
-        todo!()
-        // self.project().0.poll_next(cx).map(|opt| {
-        //     opt.map(|res| {
-        //         let (ack_token, message) = res?;
-        //         Ok(PubSubMessage {
-        //             ack_token,
-        //             message: pubsub_to_hedwig(message)?,
-        //         })
-        //     })
-        // })
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
+        let this = self.as_mut().project();
+        let opts = StreamReadOptions::default().count(1);
+        let result: Poll<Option<Result<RedisMessage<ValidatedMessage>, RedisStreamError>>> = this
+            .con
+            .xread_options(&["hedwig:user.created"], &[">"], &opts)
+            .poll_unpin(cx)
+            .map(|result: RedisResult<StreamReadReply>| result.map(redis_to_hedwig))
+            .map(|msg| match msg {
+                Ok(Ok(validated_message)) => Some(Ok(RedisMessage {
+                    ack_token: AcknowledgeToken,
+                    message: validated_message,
+                })),
+                _ => todo!(),
+            });
+        result
     }
+}
+
+fn redis_to_hedwig(
+    stream_read_reply: StreamReadReply,
+) -> Result<ValidatedMessage, RedisStreamError> {
+    todo!()
 }
 
 #[derive(Debug)]
