@@ -5,6 +5,10 @@ use crate::{AcknowledgeableMessage, Headers, ValidatedMessage};
 use async_trait::async_trait;
 use futures_util::stream;
 use pin_project::pin_project;
+use redis::{
+    streams::{StreamReadOptions, StreamReadReply},
+    AsyncCommands, RedisResult,
+};
 use std::{
     borrow::Cow,
     fmt::Display,
@@ -30,11 +34,13 @@ impl<'s> SubscriptionName<'s> {
 }
 
 #[derive(Debug, Clone)]
-pub struct ConsumerClient;
+pub struct ConsumerClient {
+    client: redis::Client,
+}
 
 impl ConsumerClient {
-    pub fn from_client(_client: redis::Client) -> Self {
-        ConsumerClient
+    pub fn from_client(client: redis::Client) -> Self {
+        ConsumerClient { client }
     }
 }
 
@@ -55,11 +61,48 @@ impl ConsumerClient {
         Ok(())
     }
 
-    pub fn stream_subscription(&mut self, subscription: SubscriptionName<'_>) -> RedisStream {
-        // TODO SW-19526 Implement stream_subscription
-        // let subscription = self.format_subscription(subscription);
-        // PubSubStream(self.client.stream_subscription(subscription))
-        RedisStream
+    pub async fn stream_subscription(&mut self, subscription: SubscriptionName<'_>) -> RedisStream {
+        let mut con = self
+            .client
+            .get_multiplexed_async_connection()
+            .await
+            .unwrap();
+
+        let stream_name = subscription.0.to_string();
+        dbg!(&stream_name);
+
+        let (tx, rx) = tokio::sync::mpsc::channel(1000);
+
+        tokio::spawn(async move {
+            loop {
+                // TODO SW-19526 Use consumer group to read undelivered messages
+                // TODO SW-19526 group_name?
+                // TODO SW-19526 consumer_name?
+                // let opts = StreamReadOptions::default().group("group-1", "consumer-1");
+                let opts = StreamReadOptions::default().count(1);
+
+                let results: RedisResult<StreamReadReply> =
+                    con.xread_options(&["hedwig_payload"], &[">"], &opts).await;
+
+                match results {
+                    Ok(stream_reply) => {
+                        dbg!(stream_reply);
+                    }
+                    Err(_) => break,
+                }
+            }
+
+            // while let Some(EncodedMessage { topic, data }) = rx.recv().await {
+            //     let key = format!("hedwig:{}", topic);
+            //     // Encode as base64, because Redis needs it
+            //     let payload = base64::engine::general_purpose::STANDARD.encode(data);
+            //     let items: [(&str, &str); 1] = [("hedwig_payload", &payload)];
+            //     // TODO SW-19526 Error should be handled
+            //     let _: Result<(), _> = con.xadd(key, "*", &items).await;
+            // }
+        });
+
+        RedisStream { receiver: rx }
     }
 }
 
@@ -69,7 +112,11 @@ pub struct SubscriptionConfig<'s> {
     pub topic: TopicName<'s>,
 }
 
-pub struct RedisStream;
+pub struct RedisStream {
+    // con: redis::aio::MultiplexedConnection,
+    // stream_name: String,
+    receiver: tokio::sync::mpsc::Receiver<Vec<u8>>,
+}
 
 pub type PubSubMessage<T> = crate::consumer::AcknowledgeableMessage<AcknowledgeToken, T>;
 
@@ -87,9 +134,18 @@ impl stream::Stream for RedisStream {
     type Item =
         Result<AcknowledgeableMessage<AcknowledgeToken, ValidatedMessage>, RedisStreamError>;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
-        // TODO SW-19526 Implement stream poll_next
-        Poll::Pending
+    // TODO SW-19526 Implement stream poll_next
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        let receiver = &mut this.receiver;
+        match receiver.poll_recv(cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(None) => Poll::Pending,
+            Poll::Ready(encoded_payload) => {
+                dbg!(&encoded_payload);
+                todo!()
+            }
+        }
     }
 }
 

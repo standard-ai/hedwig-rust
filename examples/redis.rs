@@ -159,6 +159,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
 
     let mut read_stream = consumer_client
         .stream_subscription(subscription_name.clone())
+        .await
         .consume::<UserCreatedMessage>(hedwig::validators::ProstDecoder::new(
             hedwig::validators::prost::ExactSchemaMatcher::new("user.created/1.0"),
         ));

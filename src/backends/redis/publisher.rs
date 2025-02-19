@@ -133,7 +133,6 @@ where
 
     fn start_send(mut self: Pin<&mut Self>, message: M) -> Result<(), Self::Error> {
         // TODO SW-19526 trivial mpsc implementation
-        // TODO SW-19526 encode
         use tokio::sync::mpsc::error::TrySendError;
         let this = self.as_mut().project();
 
