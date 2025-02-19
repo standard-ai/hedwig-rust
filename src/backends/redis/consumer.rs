@@ -1,70 +1,31 @@
-use crate::{Headers, ValidatedMessage};
 use async_trait::async_trait;
-use futures_util::{stream, FutureExt, TryFutureExt};
+use futures_util::stream;
 use pin_project::pin_project;
 use redis::{
     streams::{StreamReadOptions, StreamReadReply},
     AsyncCommands, RedisResult,
 };
-use std::error::Error as _;
 use std::{
     borrow::Cow,
-    fmt::Display,
-    ops::Bound,
     pin::Pin,
-    str::FromStr,
     task::{Context, Poll},
-    time::{Duration, SystemTime},
+    time::SystemTime,
 };
-use tracing::{debug, info, warn};
-use uuid::Uuid;
+use tracing::{debug, warn};
+
+use crate::{redis::PAYLOAD_KEY, Headers, ValidatedMessage};
 
 use super::TopicName;
 
-/// A PubSub subscription name.
-///
-/// This will be used to internally construct the expected
-/// `projects/{project}/subscriptions/hedwig-{queue}-{subscription_name}` format for API calls
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SubscriptionName<'s>(Cow<'s, str>);
 
 impl<'s> SubscriptionName<'s> {
-    /// Create a new `SubscriptionName`
     pub fn new(subscription: impl Into<Cow<'s, str>>) -> Self {
         Self(subscription.into())
     }
-
-    // /// Create a new `SubscriptionName` for a cross-project subscription, i.e. a subscription that subscribes to a topic
-    // /// from another project.
-    // pub fn with_cross_project(
-    //     project: impl Into<Cow<'s, str>>,
-    //     subscription: impl Into<Cow<'s, str>>,
-    // ) -> Self {
-    //     // the cross-project is effectively part of a compound subscription name
-    //     Self(format!("{}-{}", project.into(), subscription.into()).into())
-    // }
-    //
-    // /// Construct a full project and subscription name with this name
-    // fn into_project_subscription_name(
-    //     self,
-    //     project_name: impl Display,
-    //     queue_name: impl Display,
-    // ) -> pubsub::ProjectSubscriptionName {
-    //     pubsub::ProjectSubscriptionName::new(
-    //         project_name,
-    //         std::format_args!(
-    //             "hedwig-{queue}-{subscription}",
-    //             queue = queue_name,
-    //             subscription = self.0
-    //         ),
-    //     )
-    // }
 }
 
-/// A client through which PubSub consuming operations can be performed.
-///
-/// This includes managing subscriptions and reading data from subscriptions. Created using
-/// [`build_consumer`](super::ClientBuilder::build_consumer)
 #[derive(Debug, Clone)]
 pub struct ConsumerClient {
     client: redis::Client,
@@ -78,33 +39,6 @@ impl ConsumerClient {
     /// defaults provided by [`build_consumer`](super::ClientBuilder::build_consumer)
     pub fn from_client(client: redis::Client, queue: String) -> Self {
         ConsumerClient { client, queue }
-    }
-
-    fn queue(&self) -> &str {
-        &self.queue
-    }
-
-    /// Construct a fully formatted project and subscription name for the given subscription
-    // pub fn format_subscription(
-    //     &self,
-    //     subscription: SubscriptionName<'_>,
-    // ) -> pubsub::ProjectSubscriptionName {
-    //     subscription.into_project_subscription_name(self.project(), self.queue())
-    // }
-    //
-    // /// Construct a fully formatted project and topic name for the given topic
-    // pub fn format_topic(&self, topic: TopicName<'_>) -> pubsub::ProjectTopicName {
-    //     topic.into_project_topic_name(self.project())
-    // }
-
-    /// Get a reference to the underlying pubsub client
-    pub fn inner(&self) -> &redis::Client {
-        &self.client
-    }
-
-    /// Get a mutable reference to the underlying pubsub client
-    pub fn inner_mut(&mut self) -> &mut redis::Client {
-        &mut self.client
     }
 }
 
@@ -157,14 +91,17 @@ impl ConsumerClient {
     /// See the GCP documentation on subscriptions [here](https://cloud.google.com/pubsub/docs/subscriber)
     pub async fn delete_subscription(
         &mut self,
-        subscription: SubscriptionName<'_>,
+        _subscription: SubscriptionName<'_>,
     ) -> Result<(), redis::RedisError> {
         // TODO
         Ok(())
     }
 
     /// Connect to PubSub and start streaming messages from the given subscription
-    pub async fn stream_subscription(&mut self, subscription: SubscriptionName<'_>) -> RedisStream {
+    pub async fn stream_subscription(
+        &mut self,
+        _subscription: SubscriptionName<'_>,
+    ) -> RedisStream {
         let con = self
             .client
             .get_multiplexed_async_connection()
@@ -208,7 +145,7 @@ impl ConsumerClient {
                                         con.xack(&stream_name, group_name, &[&message.id]).await;
 
                                     if let Some(redis::Value::BulkString(vec)) =
-                                        message.map.get("hedwig_payload")
+                                        message.map.get(PAYLOAD_KEY)
                                     {
                                         tx.send(vec.clone()).await.unwrap()
                                     } else {

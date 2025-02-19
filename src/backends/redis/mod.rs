@@ -6,6 +6,8 @@ mod publisher;
 pub use consumer::*;
 pub use publisher::*;
 
+const PAYLOAD_KEY: &str = "hedwig_payload";
+
 #[derive(Debug, thiserror::Error)]
 pub enum RedisError {
     #[error("data store disconnected")]

@@ -1,25 +1,16 @@
-#![allow(unused_variables)]
-#![allow(unused_imports)]
-
-use crate::{EncodableMessage, Topic, ValidatedMessage};
 use base64::Engine;
-use futures_util::{
-    ready,
-    sink::{Sink, SinkExt},
-};
+use futures_util::sink::Sink;
 use pin_project::pin_project;
 use redis::AsyncCommands;
-use std::{borrow::Cow, fmt::Display};
 use std::{
-    collections::{BTreeMap, VecDeque},
-    fmt,
     pin::Pin,
     task::{Context, Poll},
-    time::SystemTime,
 };
 
-use super::RedisError;
+use crate::EncodableMessage;
+
 use super::TopicName;
+use super::{RedisError, PAYLOAD_KEY};
 
 #[derive(Debug, Clone)]
 pub struct PublisherClient {
@@ -84,7 +75,7 @@ impl PublisherClient {
                 let key = format!("hedwig:{}", topic);
                 // Encode as base64, because Redis needs it
                 let payload = base64::engine::general_purpose::STANDARD.encode(data);
-                let items: [(&str, &str); 1] = [("hedwig_payload", &payload)];
+                let items: [(&str, &str); 1] = [(PAYLOAD_KEY, &payload)];
                 // TODO SW-19526 Error should be handled
                 let _: Result<(), _> = con.xadd(key, "*", &items).await;
             }
@@ -140,7 +131,6 @@ where
 
     fn start_send(mut self: Pin<&mut Self>, message: M) -> Result<(), Self::Error> {
         // TODO SW-19526 trivial mpsc implementation
-        use tokio::sync::mpsc::error::TrySendError;
         let this = self.as_mut().project();
 
         let validated = match message.encode(this.validator) {
@@ -163,7 +153,10 @@ where
         self.get_mut()
             .sender
             .try_send(encoded_message)
-            .map_err(|cause| PublishError::Publish { cause: cause.into(), message })
+            .map_err(|cause| PublishError::Publish {
+                cause: cause.into(),
+                message,
+            })
     }
 
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
