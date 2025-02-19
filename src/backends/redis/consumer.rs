@@ -270,6 +270,9 @@ pub enum RedisStreamError {
         #[source]
         source: BoxError,
     },
+
+    #[error("malformed message")]
+    MalformedMessage,
 }
 
 type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
@@ -289,41 +292,31 @@ impl stream::Stream for RedisStream {
     type Item = Result<RedisMessage<ValidatedMessage>, RedisStreamError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
-        Poll::Pending
-        // let this = self.as_mut().project();
-        // let stream_name = this.stream_name.as_str();
-        // let opts = this.stream_read_options;
-        // debug!(stream_name = stream_name, opts = ?opts, "poll_next");
-        // let result: Poll<Option<Result<RedisMessage<ValidatedMessage>, RedisStreamError>>> = this
-        //     .con
-        //     .xread_options(&[stream_name], &[">"], opts)
-        //     .inspect_err(|err| {
-        //         dbg!(err);
-        //     })
-        //     .inspect(|x| {
-        //         dbg!(x);
-        //     })
-        //     .poll_unpin(cx)
-        //     .map(|result: RedisResult<StreamReadReply>| {
-        //         result.map(redis_to_hedwig).inspect_err(|err| {
-        //             dbg!(&err);
-        //         })
-        //     })
-        //     .map(|msg| match msg {
-        //         Ok(Ok(validated_message)) => Some(Ok(RedisMessage {
-        //             ack_token: AcknowledgeToken,
-        //             message: validated_message,
-        //         })),
-        //         _ => todo!(),
-        //     });
-        // result
+        let this = self.as_mut().project();
+        this.receiver.poll_recv(cx).map(|opt| {
+            opt.map(|encoded_message| {
+                let validated_message = redis_to_hedwig(&encoded_message).unwrap();
+                Ok(RedisMessage {
+                    ack_token: AcknowledgeToken,
+                    message: validated_message,
+                })
+            })
+        })
     }
 }
 
-fn redis_to_hedwig(
-    stream_read_reply: StreamReadReply,
-) -> Result<ValidatedMessage, RedisStreamError> {
-    todo!()
+fn redis_to_hedwig(payload: &[u8]) -> Result<ValidatedMessage, RedisStreamError> {
+    use base64::Engine;
+    let data = base64::engine::general_purpose::STANDARD
+        .decode(payload)
+        .map_err(|_| RedisStreamError::MalformedMessage)?;
+
+    let id = uuid::Uuid::new_v4();
+    let timestamp = SystemTime::now();
+    let schema = "user.created/1.0"; // TODO
+    let headers = Headers::new();
+
+    Ok(ValidatedMessage::new(id, timestamp, schema, headers, data))
 }
 
 #[derive(Debug)]
