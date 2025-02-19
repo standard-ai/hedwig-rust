@@ -1,7 +1,7 @@
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
 use hedwig::{
     redis::{
-        ClientBuilder, ClientBuilderConfig, PubSubMessage, SubscriptionConfig, SubscriptionName,
+        ClientBuilder, ClientBuilderConfig, RedisMessage, SubscriptionConfig, SubscriptionName,
         TopicConfig, TopicName,
     },
     validators, Consumer, DecodableMessage, EncodableMessage, Headers, Publisher,
@@ -62,7 +62,7 @@ struct UserUpdatedMessage {
 /// The output message will carry an ack token from the input message, to ack when the output is
 /// successfully published, or nack on failure
 #[derive(Debug)]
-struct TransformedMessage(PubSubMessage<UserUpdatedMessage>);
+struct TransformedMessage(RedisMessage<UserUpdatedMessage>);
 
 impl EncodableMessage for TransformedMessage {
     type Error = validators::ProstValidatorError;
@@ -159,7 +159,6 @@ async fn main() -> Result<(), Box<dyn StdError>> {
 
     let mut read_stream = consumer_client
         .stream_subscription(subscription_name.clone())
-        .await
         .consume::<UserCreatedMessage>(hedwig::validators::ProstDecoder::new(
             hedwig::validators::prost::ExactSchemaMatcher::new("user.created/1.0"),
         ));
@@ -174,14 +173,14 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     );
 
     for i in 1..=10 {
-        let PubSubMessage { ack_token, message } = read_stream
+        let RedisMessage { ack_token, message } = read_stream
             .next()
             .await
             .expect("stream should have 10 elements")?;
 
         assert_eq!(&message.name, &format!("Example Name #{}", i));
 
-        let transformed = TransformedMessage(PubSubMessage {
+        let transformed = TransformedMessage(RedisMessage {
             ack_token,
             message: UserUpdatedMessage {
                 name: message.name,
