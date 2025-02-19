@@ -33,10 +33,6 @@ pub struct ConsumerClient {
 }
 
 impl ConsumerClient {
-    /// Create a new consumer from an existing pubsub client.
-    ///
-    /// This function is useful for client customization; most callers should typically use the
-    /// defaults provided by [`build_consumer`](super::ClientBuilder::build_consumer)
     pub fn from_client(client: redis::Client, queue: String) -> Self {
         ConsumerClient { client, queue }
     }
@@ -124,11 +120,19 @@ impl ConsumerClient {
                 .await
                 .unwrap();
 
-            // TODO SW-19526 sketch, simple implementation with channels
             let (tx, rx) = tokio::sync::mpsc::channel(1000);
 
             let stream_name = stream_name.clone();
-            let stream_read_options = StreamReadOptions::default().group(group_name, consumer_name);
+
+            // TODO: SW-19526 Implement reliability
+
+            // The NOACK subcommand can be used to avoid adding the message to the PEL in cases where reliability is not
+            // a requirement and the occasional message loss is acceptable. This is equivalent to acknowledging the
+            // message when it is read.
+            let stream_read_options = StreamReadOptions::default()
+                .group(group_name, consumer_name)
+                .noack();
+
             tokio::spawn(async move {
                 loop {
                     // Read from the stream
