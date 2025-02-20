@@ -7,6 +7,7 @@ pub use consumer::*;
 pub use publisher::*;
 
 const PAYLOAD_KEY: &str = "hedwig_payload";
+const ENCODING_ATTRIBUTE: (&str, &str) = ("hedwig_encoding", "base64");
 
 #[derive(Debug, thiserror::Error)]
 pub enum RedisError {

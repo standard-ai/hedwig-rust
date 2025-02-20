@@ -1,5 +1,6 @@
 use base64::Engine;
 use futures_util::sink::Sink;
+use hedwig_core::Topic;
 use pin_project::pin_project;
 use redis::AsyncCommands;
 use std::{
@@ -9,8 +10,8 @@ use std::{
 
 use crate::EncodableMessage;
 
-use super::TopicName;
 use super::{RedisError, PAYLOAD_KEY};
+use super::{TopicName, ENCODING_ATTRIBUTE};
 
 #[derive(Debug, Clone)]
 pub struct PublisherClient {
@@ -72,12 +73,19 @@ impl PublisherClient {
 
         tokio::spawn(async move {
             while let Some(EncodedMessage { topic, data }) = rx.recv().await {
-                let key = format!("hedwig:{}", topic);
+                let key = StreamName::from(topic);
                 // Encode as base64, because Redis needs it
                 let payload = base64::engine::general_purpose::STANDARD.encode(data);
-                let items: [(&str, &str); 1] = [(PAYLOAD_KEY, &payload)];
+                // Use * as the id for the current timestamp
+                let id = "*";
                 // TODO SW-19526 Add error handling
-                let _: Result<(), _> = con.xadd(key, "*", &items).await;
+                let _: Result<(), _> = con
+                    .xadd(
+                        key.0,
+                        id,
+                        &[(PAYLOAD_KEY, payload.as_str()), ENCODING_ATTRIBUTE],
+                    )
+                    .await;
             }
         });
 
@@ -179,7 +187,7 @@ where
         // TODO SW-19526 Better create an intermediate sink for encoding, see googlepubsub
         let bytes = validated.into_data();
         let encoded_message = EncodedMessage {
-            topic: message.topic().to_string(),
+            topic: message.topic(),
             data: bytes,
         };
 
@@ -227,6 +235,15 @@ where
 }
 
 struct EncodedMessage {
-    topic: String,
+    topic: Topic,
     data: bytes::Bytes,
+}
+
+/// redis stream name (used as key param in XADD)
+struct StreamName(String);
+
+impl From<Topic> for StreamName {
+    fn from(topic: Topic) -> Self {
+        Self(format!("hedwig:{}", topic))
+    }
 }

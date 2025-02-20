@@ -50,20 +50,12 @@ impl ConsumerClient {
             .unwrap();
         let topic = config.topic.0.to_string();
         let stream_name = format!("hedwig:{topic}");
-        let group_name = config.name.0.to_string();
+        let subscription_name = config.name.0.to_string();
+        let queue = &self.queue;
+        let group_name = format!("hedwig:{queue}-{subscription_name}");
 
         // The special ID $ is the ID of the last entry in the stream
         let id = "$";
-
-        debug!(
-            topic = topic,
-            stream_name = stream_name,
-            "create_subscription"
-        );
-        debug!(
-            "xgroup_create_mkstream({:?}, {:?}, {:?}",
-            stream_name, group_name, id
-        );
 
         match con
             .xgroup_create_mkstream(&stream_name, &group_name, id)
