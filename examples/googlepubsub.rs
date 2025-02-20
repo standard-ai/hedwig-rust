@@ -97,6 +97,22 @@ struct Args {
     /// application-default login`
     #[structopt(long)]
     user_account_credentials: Option<std::path::PathBuf>,
+
+    /// Assume topics already exist and do not create them
+    #[structopt(long)]
+    assume_topics_exist: bool,
+
+    /// Do not clean up created topics on exit
+    #[structopt(long)]
+    keep_topics: bool,
+
+    /// Assume topics already exist and do not create them
+    #[structopt(long)]
+    assume_subscriptions_exist: bool,
+
+    /// Do not clean up created topics on exit
+    #[structopt(long)]
+    keep_subscriptions: bool,
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -130,26 +146,30 @@ async fn main() -> Result<(), Box<dyn StdError>> {
         .await?;
     let mut consumer_client = builder.build_consumer(&args.project_name, APP_NAME).await?;
 
-    for topic_name in [&input_topic_name, &output_topic_name] {
-        println!("Creating topic {:?}", topic_name);
+    if !args.assume_topics_exist {
+        for topic_name in [&input_topic_name, &output_topic_name] {
+            println!("Creating topic {:?}", topic_name);
 
-        let _ = publisher_client
-            .create_topic(TopicConfig {
-                name: topic_name.clone(),
-                ..TopicConfig::default()
-            })
-            .await;
+            let _ = publisher_client
+                .create_topic(TopicConfig {
+                    name: topic_name.clone(),
+                    ..TopicConfig::default()
+                })
+                .await;
+        }
     }
 
     println!("Creating subscription {:?}", &subscription_name);
 
-    let _ = consumer_client
-        .create_subscription(SubscriptionConfig {
-            topic: input_topic_name.clone(),
-            name: subscription_name.clone(),
-            ..SubscriptionConfig::default()
-        })
-        .await;
+    if !args.assume_subscriptions_exist {
+        let _ = consumer_client
+            .create_subscription(SubscriptionConfig {
+                topic: input_topic_name.clone(),
+                name: subscription_name.clone(),
+                ..SubscriptionConfig::default()
+            })
+            .await;
+    }
 
     println!(
         "Synthesizing input messages for topic {:?}",
@@ -234,12 +254,16 @@ async fn main() -> Result<(), Box<dyn StdError>> {
 
     println!("Deleting subscription {:?}", &subscription_name);
 
-    let _ = consumer_client.delete_subscription(subscription_name).await;
+    if !args.keep_subscriptions {
+        let _ = consumer_client.delete_subscription(subscription_name).await;
+    }
 
-    for topic_name in [input_topic_name, output_topic_name] {
-        println!("Deleting topic {:?}", &topic_name);
+    if !args.keep_topics {
+        for topic_name in [input_topic_name, output_topic_name] {
+            println!("Deleting topic {:?}", &topic_name);
 
-        let _ = publisher_client.delete_topic(topic_name).await;
+            let _ = publisher_client.delete_topic(topic_name).await;
+        }
     }
 
     println!("Done");
