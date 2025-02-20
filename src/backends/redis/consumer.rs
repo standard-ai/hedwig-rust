@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use futures_util::stream;
 use pin_project::pin_project;
 use redis::{
+    aio::MultiplexedConnection,
     streams::{StreamReadOptions, StreamReadReply},
     AsyncCommands, RedisResult,
 };
@@ -38,11 +39,35 @@ impl ConsumerClient {
     }
 }
 
+async fn xgroup_create_mkstream(
+    con: &mut MultiplexedConnection,
+    stream_name: &StreamName,
+    group_name: &GroupName,
+) -> RedisResult<()> {
+    // The special ID $ is the ID of the last entry in the stream
+    let id = "$";
+
+    con.xgroup_create_mkstream(&stream_name.0, &group_name.0, id)
+        .await
+        .inspect(|_| {
+            debug!(
+                group_name = &group_name.0,
+                stream_name = &stream_name.0,
+                "redis consumer group created"
+            );
+        })
+        .inspect_err(|err| {
+            warn!(
+                err = err.to_string(),
+                group_name = &group_name.0,
+                stream_name = &stream_name.0,
+                "cannot create consumer group"
+            );
+        })
+}
+
 impl ConsumerClient {
-    pub async fn create_subscription(
-        &mut self,
-        config: SubscriptionConfig<'_>,
-    ) -> Result<(), redis::RedisError> {
+    pub async fn create_subscription(&mut self, config: SubscriptionConfig<'_>) -> RedisResult<()> {
         let mut con = self
             .client
             .get_multiplexed_async_connection()
@@ -50,33 +75,13 @@ impl ConsumerClient {
             .unwrap();
         let stream_name = &config.stream_name;
         let group_name = GroupName::from_queue(&self.queue);
-
-        // The special ID $ is the ID of the last entry in the stream
-        let id = "$";
-
-        match con
-            .xgroup_create_mkstream(&stream_name.0, &group_name.0, id)
-            .await
-        {
-            Ok(()) => debug!(
-                group_name = &group_name.0,
-                stream_name = &stream_name.0,
-                "redis consumer group created"
-            ),
-            Err(err) => warn!(
-                err = err.to_string(),
-                group_name = &group_name.0,
-                stream_name = &stream_name.0,
-                "cannot create consumer group"
-            ),
-        }
-        Ok(())
+        xgroup_create_mkstream(&mut con, stream_name, &group_name).await
     }
 
     pub async fn delete_subscription(
         &mut self,
         _subscription: SubscriptionName<'_>,
-    ) -> Result<(), redis::RedisError> {
+    ) -> RedisResult<()> {
         // TODO
         Ok(())
     }
