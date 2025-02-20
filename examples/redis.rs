@@ -1,8 +1,7 @@
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
 use hedwig::{
     redis::{
-        ClientBuilder, ClientBuilderConfig, RedisMessage, StreamName, SubscriptionConfig,
-        SubscriptionName, TopicConfig,
+        ClientBuilder, ClientBuilderConfig, Group, GroupName, RedisMessage, StreamName, TopicConfig,
     },
     validators, Consumer, DecodableMessage, EncodableMessage, Headers, Publisher,
 };
@@ -104,7 +103,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     let builder = ClientBuilder::new(config).await?;
 
     let input_topic_name = StreamName::from_topic(USER_CREATED_TOPIC);
-    let subscription_name = SubscriptionName::new("user-metadata-updaters");
+    let input_consumer_group = Group::new(GroupName::new(APP_NAME), input_topic_name.clone());
 
     let output_topic_name = StreamName::from_topic(USER_UPDATED_TOPIC);
     const APP_NAME: &str = "user-metadata-updater";
@@ -122,14 +121,9 @@ async fn main() -> Result<(), Box<dyn StdError>> {
             .await?;
     }
 
-    println!("Creating subscription {:?}", &subscription_name);
-
-    consumer_client
-        .create_subscription(SubscriptionConfig {
-            stream_name: input_topic_name.clone(),
-            name: subscription_name.clone(),
-        })
-        .await?;
+    let _ = consumer_client
+        .create_subscription(&input_consumer_group)
+        .await;
 
     println!(
         "Synthesizing input messages for topic {:?}",
@@ -159,7 +153,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     println!("Ingesting input messages, applying transformations, and publishing to destination");
 
     let mut read_stream = consumer_client
-        .stream_subscription(subscription_name.clone())
+        .stream_subscription(input_consumer_group.clone())
         .await
         .consume::<UserCreatedMessage>(hedwig::validators::ProstDecoder::new(
             hedwig::validators::prost::ExactSchemaMatcher::new("user.created/1.0"),
@@ -223,10 +217,10 @@ async fn main() -> Result<(), Box<dyn StdError>> {
 
     println!("All messages matched and published successfully!");
 
-    println!("Deleting subscription {:?}", &subscription_name);
+    println!("Deleting subscription {:?}", &input_consumer_group);
 
     consumer_client
-        .delete_subscription(subscription_name)
+        .delete_subscription(input_consumer_group)
         .await?;
 
     for topic_name in [input_topic_name, output_topic_name] {

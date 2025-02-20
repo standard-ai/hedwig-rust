@@ -17,24 +17,23 @@ use crate::{redis::PAYLOAD_KEY, Headers, ValidatedMessage};
 
 use super::StreamName;
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct SubscriptionName(String);
-
-impl SubscriptionName {
-    pub fn new(subscription: impl Into<String>) -> Self {
-        Self(subscription.into())
-    }
-}
+// #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+// pub struct SubscriptionName(String);
+//
+// impl SubscriptionName {
+//     pub fn new(subscription: impl Into<String>) -> Self {
+//         Self(subscription.into())
+//     }
+// }
 
 #[derive(Debug, Clone)]
 pub struct ConsumerClient {
     client: redis::Client,
-    queue: String,
 }
 
 impl ConsumerClient {
     pub fn from_client(client: redis::Client, queue: String) -> Self {
-        ConsumerClient { client, queue }
+        ConsumerClient { client }
     }
 }
 
@@ -66,29 +65,28 @@ async fn xgroup_create_mkstream(
 }
 
 impl ConsumerClient {
-    pub async fn create_subscription(&mut self, config: SubscriptionConfig) -> RedisResult<()> {
+    pub async fn create_subscription(&mut self, config: &Group) -> RedisResult<()> {
         let mut con = self
             .client
             .get_multiplexed_async_connection()
             .await
             .unwrap();
         let stream_name = &config.stream_name;
-        let group_name = GroupName::from_queue(&self.queue);
-        xgroup_create_mkstream(&mut con, stream_name, &group_name).await
+        let group_name = &config.group_name;
+        xgroup_create_mkstream(&mut con, stream_name, group_name).await
     }
 
     pub async fn delete_subscription(
         &mut self,
-        _subscription: SubscriptionName,
+        _subscription: Group,
     ) -> RedisResult<()> {
         // TODO
         Ok(())
     }
 
-    pub async fn stream_subscription(&mut self, subscription: SubscriptionName) -> RedisStream {
-        let topic = "user.created";
-        let stream_name = format!("hedwig:{topic}");
-        let group_name = subscription.0.to_string();
+    pub async fn stream_subscription(&mut self, subscription: Group) -> RedisStream {
+        let stream_name = subscription.stream_name;
+        let group_name = subscription.group_name;
         let consumer_name = ConsumerName::new();
 
         let stream_name = stream_name.clone();
@@ -98,10 +96,9 @@ impl ConsumerClient {
         // a requirement and the occasional message loss is acceptable. This is equivalent to acknowledging the
         // message when it is read.
         let stream_read_options = StreamReadOptions::default()
-            .group(&group_name, &consumer_name.0)
+            .group(&group_name.0, &consumer_name.0)
             .noack();
 
-        debug!("Created stream: {stream_name}");
         let mut con = self
             .client
             .get_multiplexed_async_connection()
@@ -113,7 +110,7 @@ impl ConsumerClient {
             loop {
                 // Read from the stream
                 let result: RedisResult<StreamReadReply> = con
-                    .xread_options(&[&stream_name], &[">"], &stream_read_options)
+                    .xread_options(&[&stream_name.0], &[">"], &stream_read_options)
                     .await;
 
                 match result {
@@ -122,7 +119,7 @@ impl ConsumerClient {
                             for message in stream_key.ids {
                                 // TODO Do not ack immediately, use ack token instead
                                 let _: Result<(), _> =
-                                    con.xack(&stream_name, &group_name, &[&message.id]).await;
+                                    con.xack(&stream_name.0, &group_name.0, &[&message.id]).await;
 
                                 if let Some(redis::Value::BulkString(vec)) =
                                     message.map.get(PAYLOAD_KEY)
@@ -145,12 +142,6 @@ impl ConsumerClient {
         RedisStream { receiver: rx }
     }
 }
-#[derive(Debug, Clone)]
-pub struct SubscriptionConfig {
-    pub stream_name: StreamName,
-    pub name: SubscriptionName,
-}
-
 /// A message received from Redis
 pub type RedisMessage<T> = crate::consumer::AcknowledgeableMessage<AcknowledgeToken, T>;
 
@@ -268,10 +259,23 @@ impl ConsumerName {
     }
 }
 
-struct GroupName(String);
+#[derive(Debug, Clone)]
+pub struct GroupName(String);
 
 impl GroupName {
-    fn from_queue(queue: impl Into<String>) -> Self {
-        Self(queue.into())
+    pub fn new(name: impl Into<String>) -> Self {
+        Self(name.into())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Group {
+    group_name: GroupName,
+    stream_name: StreamName,
+}
+
+impl Group {
+    pub fn new(name: GroupName, stream_name: StreamName) -> Self {
+        Self { group_name: name, stream_name }
     }
 }
