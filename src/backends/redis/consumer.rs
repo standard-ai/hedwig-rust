@@ -50,8 +50,10 @@ impl ConsumerClient {
             .unwrap();
         let topic = config.topic.0.to_string();
         let stream_name = format!("hedwig:{topic}");
-        let group_name = "test";
-        let id = "0";
+        let group_name = config.name.0.to_string();
+
+        // The special ID $ is the ID of the last entry in the stream
+        let id = "$";
 
         debug!(
             topic = topic,
@@ -64,11 +66,11 @@ impl ConsumerClient {
         );
 
         match con
-            .xgroup_create_mkstream(stream_name.clone(), group_name, id)
+            .xgroup_create_mkstream(&stream_name, &group_name, id)
             .await
         {
             Ok(()) => debug!(
-                group_name = group_name,
+                group_name = &group_name,
                 stream_name = stream_name,
                 "redis consumer group created"
             ),
@@ -82,9 +84,6 @@ impl ConsumerClient {
         Ok(())
     }
 
-    /// Delete an existing PubSub subscription.
-    ///
-    /// See the GCP documentation on subscriptions [here](https://cloud.google.com/pubsub/docs/subscriber)
     pub async fn delete_subscription(
         &mut self,
         _subscription: SubscriptionName<'_>,
@@ -93,87 +92,64 @@ impl ConsumerClient {
         Ok(())
     }
 
-    /// Connect to PubSub and start streaming messages from the given subscription
-    pub async fn stream_subscription(
-        &mut self,
-        _subscription: SubscriptionName<'_>,
-    ) -> RedisStream {
-        let con = self
+    pub async fn stream_subscription(&mut self, subscription: SubscriptionName<'_>) -> RedisStream {
+        let topic = "user.created";
+        let stream_name = format!("hedwig:{topic}");
+        let group_name = subscription.0.to_string();
+        let consumer_name = uuid::Uuid::new_v4().to_string();
+
+        let stream_name = stream_name.clone();
+
+        // TODO: SW-19526 Implement reliability
+        // The NOACK subcommand can be used to avoid adding the message to the PEL in cases where reliability is not
+        // a requirement and the occasional message loss is acceptable. This is equivalent to acknowledging the
+        // message when it is read.
+        let stream_read_options = StreamReadOptions::default()
+            .group(&group_name, &consumer_name)
+            .noack();
+
+        debug!("Created stream: {stream_name}");
+        let mut con = self
             .client
             .get_multiplexed_async_connection()
             .await
             .unwrap();
+        let (tx, rx) = tokio::sync::mpsc::channel(1000);
 
-        let topic = "user.created";
-        let stream_name = format!("hedwig:{topic}");
-        let group_name = "test";
-        let consumer_name = "asd-asd-asd";
+        tokio::spawn(async move {
+            loop {
+                // Read from the stream
+                let result: RedisResult<StreamReadReply> = con
+                    .xread_options(&[&stream_name], &[">"], &stream_read_options)
+                    .await;
 
-        let stream_read_options = StreamReadOptions::default().group(group_name, consumer_name);
+                match result {
+                    Ok(entry) => {
+                        for stream_key in entry.keys {
+                            for message in stream_key.ids {
+                                // TODO Do not ack immediately, use ack token instead
+                                let _: Result<(), _> =
+                                    con.xack(&stream_name, &group_name, &[&message.id]).await;
 
-        debug!("Created stream: {stream_name}");
-
-        let receiver = {
-            let mut con = self
-                .client
-                .get_multiplexed_async_connection()
-                .await
-                .unwrap();
-
-            let (tx, rx) = tokio::sync::mpsc::channel(1000);
-
-            let stream_name = stream_name.clone();
-
-            // TODO: SW-19526 Implement reliability
-
-            // The NOACK subcommand can be used to avoid adding the message to the PEL in cases where reliability is not
-            // a requirement and the occasional message loss is acceptable. This is equivalent to acknowledging the
-            // message when it is read.
-            let stream_read_options = StreamReadOptions::default()
-                .group(group_name, consumer_name)
-                .noack();
-
-            tokio::spawn(async move {
-                loop {
-                    // Read from the stream
-                    let result: RedisResult<StreamReadReply> = con
-                        .xread_options(&[&stream_name], &[">"], &stream_read_options)
-                        .await;
-
-                    match result {
-                        Ok(entry) => {
-                            for stream_key in entry.keys {
-                                for message in stream_key.ids {
-                                    // TODO Do not ack immediately, use ack token instead
-                                    let _: Result<(), _> =
-                                        con.xack(&stream_name, group_name, &[&message.id]).await;
-
-                                    if let Some(redis::Value::BulkString(vec)) =
-                                        message.map.get(PAYLOAD_KEY)
-                                    {
-                                        tx.send(vec.clone()).await.unwrap()
-                                    } else {
-                                        warn!(message = ?message, "Unexpected message");
-                                    }
+                                if let Some(redis::Value::BulkString(vec)) =
+                                    message.map.get(PAYLOAD_KEY)
+                                {
+                                    tx.send(vec.clone()).await.unwrap()
+                                } else {
+                                    // TODO Handle error instead of warn
+                                    warn!(message = ?message, "Unexpected message");
                                 }
                             }
                         }
-                        Err(err) => {
-                            warn!(err = ?err, "Stream error");
-                        }
+                    }
+                    Err(err) => {
+                        warn!(err = ?err, "Stream error");
                     }
                 }
-            });
+            }
+        });
 
-            rx
-        };
-
-        RedisStream {
-            con,
-            stream_name,
-            stream_read_options,
-            receiver,
-        }
+        RedisStream { receiver: rx }
     }
 }
 #[derive(Debug, Clone)]
@@ -185,9 +161,8 @@ pub struct SubscriptionConfig<'s> {
 /// A message received from Redis
 pub type RedisMessage<T> = crate::consumer::AcknowledgeableMessage<AcknowledgeToken, T>;
 
-/// Errors encountered while streaming messages from PubSub
+/// Errors encountered while streaming messages
 #[derive(Debug, thiserror::Error)]
-#[cfg_attr(docsrs, doc(cfg(feature = "google")))]
 pub enum RedisStreamError {
     /// An error from the underlying stream
     #[error(transparent)]
@@ -223,9 +198,6 @@ type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 /// Created by [`ConsumerClient::stream_subscription`]
 #[pin_project]
 pub struct RedisStream {
-    con: redis::aio::MultiplexedConnection,
-    stream_name: String,
-    stream_read_options: StreamReadOptions,
     receiver: tokio::sync::mpsc::Receiver<Vec<u8>>,
 }
 
