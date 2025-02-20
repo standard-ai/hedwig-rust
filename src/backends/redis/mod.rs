@@ -16,11 +16,18 @@ pub enum RedisError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TopicName<'s>(Cow<'s, str>);
+pub struct StreamName<'s>(Cow<'s, str>);
 
-impl<'s> TopicName<'s> {
+impl<'s> StreamName<'s> {
     pub fn new(name: impl Into<Cow<'s, str>>) -> Self {
         Self(name.into())
+    }
+}
+
+#[allow(clippy::needless_lifetimes)]
+impl<'s> From<hedwig_core::Topic> for StreamName<'s> {
+    fn from(topic: hedwig_core::Topic) -> Self {
+        StreamName(format!("hedwig:{topic}").into())
     }
 }
 

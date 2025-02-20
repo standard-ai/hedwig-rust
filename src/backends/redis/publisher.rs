@@ -2,7 +2,7 @@ use base64::Engine;
 use futures_util::sink::Sink;
 use hedwig_core::Topic;
 use pin_project::pin_project;
-use redis::AsyncCommands;
+use redis::{aio::MultiplexedConnection, AsyncCommands, RedisResult};
 use std::{
     pin::Pin,
     task::{Context, Poll},
@@ -11,7 +11,7 @@ use std::{
 use crate::EncodableMessage;
 
 use super::{RedisError, PAYLOAD_KEY};
-use super::{TopicName, ENCODING_ATTRIBUTE};
+use super::{StreamName, ENCODING_ATTRIBUTE};
 
 #[derive(Debug, Clone)]
 pub struct PublisherClient {
@@ -47,7 +47,7 @@ pub enum PublishError<M: EncodableMessage> {
 }
 
 pub struct TopicConfig<'s> {
-    pub name: TopicName<'s>,
+    pub name: StreamName<'s>,
 }
 
 impl PublisherClient {
@@ -56,7 +56,7 @@ impl PublisherClient {
         Ok(())
     }
 
-    pub async fn delete_topic(&mut self, _topic: TopicName<'_>) -> Result<(), RedisError> {
+    pub async fn delete_topic(&mut self, _topic: StreamName<'_>) -> Result<(), RedisError> {
         // TODO SW-19526 Implement delete_topic
         Ok(())
     }
@@ -76,21 +76,25 @@ impl PublisherClient {
                 let key = StreamName::from(topic);
                 // Encode as base64, because Redis needs it
                 let payload = base64::engine::general_purpose::STANDARD.encode(data);
-                // Use * as the id for the current timestamp
-                let id = "*";
                 // TODO SW-19526 Add error handling
-                let _: Result<(), _> = con
-                    .xadd(
-                        key.0,
-                        id,
-                        &[(PAYLOAD_KEY, payload.as_str()), ENCODING_ATTRIBUTE],
-                    )
-                    .await;
+                let _: Result<(), _> = push(&mut con, &key, payload.as_str()).await;
             }
         });
 
         Publisher { sender: tx }
     }
+}
+
+async fn push(
+    con: &mut MultiplexedConnection,
+    key: &StreamName<'_>,
+    payload: &str,
+) -> RedisResult<()> {
+    // Use * as the id for the current timestamp
+    let id = "*";
+
+    con.xadd(&key.0, id, &[(PAYLOAD_KEY, payload), ENCODING_ATTRIBUTE])
+        .await
 }
 
 pub struct Publisher {
@@ -237,13 +241,4 @@ where
 struct EncodedMessage {
     topic: Topic,
     data: bytes::Bytes,
-}
-
-/// redis stream name (used as key param in XADD)
-struct StreamName(String);
-
-impl From<Topic> for StreamName {
-    fn from(topic: Topic) -> Self {
-        Self(format!("hedwig:{}", topic))
-    }
 }

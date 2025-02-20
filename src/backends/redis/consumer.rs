@@ -15,7 +15,7 @@ use tracing::{debug, warn};
 
 use crate::{redis::PAYLOAD_KEY, Headers, ValidatedMessage};
 
-use super::TopicName;
+use super::StreamName;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SubscriptionName<'s>(Cow<'s, str>);
@@ -146,7 +146,7 @@ impl ConsumerClient {
 }
 #[derive(Debug, Clone)]
 pub struct SubscriptionConfig<'s> {
-    pub topic: TopicName<'s>,
+    pub topic: StreamName<'s>,
     pub name: SubscriptionName<'s>,
 }
 
