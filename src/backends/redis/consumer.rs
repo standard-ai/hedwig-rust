@@ -17,7 +17,6 @@ use crate::{redis::PAYLOAD_KEY, Headers, ValidatedMessage};
 
 use super::StreamName;
 
-
 #[derive(Debug, Clone)]
 pub struct ConsumerClient {
     client: redis::Client,
@@ -39,21 +38,6 @@ async fn xgroup_create_mkstream(
 
     con.xgroup_create_mkstream(&stream_name.0, &group_name.0, id)
         .await
-        .inspect(|_| {
-            debug!(
-                group_name = &group_name.0,
-                stream_name = &stream_name.0,
-                "redis consumer group created"
-            );
-        })
-        .inspect_err(|err| {
-            warn!(
-                err = err.to_string(),
-                group_name = &group_name.0,
-                stream_name = &stream_name.0,
-                "cannot create consumer group"
-            );
-        })
 }
 
 impl ConsumerClient {
@@ -68,10 +52,7 @@ impl ConsumerClient {
         xgroup_create_mkstream(&mut con, stream_name, group_name).await
     }
 
-    pub async fn delete_subscription(
-        &mut self,
-        _subscription: Group,
-    ) -> RedisResult<()> {
+    pub async fn delete_subscription(&mut self, _subscription: Group) -> RedisResult<()> {
         // TODO
         Ok(())
     }
@@ -110,8 +91,9 @@ impl ConsumerClient {
                         for stream_key in entry.keys {
                             for message in stream_key.ids {
                                 // TODO Do not ack immediately, use ack token instead
-                                let _: Result<(), _> =
-                                    con.xack(&stream_name.0, &group_name.0, &[&message.id]).await;
+                                let _: Result<(), _> = con
+                                    .xack(&stream_name.0, &group_name.0, &[&message.id])
+                                    .await;
 
                                 if let Some(redis::Value::BulkString(vec)) =
                                     message.map.get(PAYLOAD_KEY)
@@ -268,6 +250,9 @@ pub struct Group {
 
 impl Group {
     pub fn new(name: GroupName, stream_name: StreamName) -> Self {
-        Self { group_name: name, stream_name }
+        Self {
+            group_name: name,
+            stream_name,
+        }
     }
 }

@@ -7,6 +7,7 @@ use hedwig::{
 };
 use std::{error::Error as StdError, time::SystemTime};
 use structopt::StructOpt;
+use tracing::warn;
 
 const USER_CREATED_TOPIC: &str = "user.created";
 const USER_UPDATED_TOPIC: &str = "user.updated";
@@ -123,7 +124,10 @@ async fn main() -> Result<(), Box<dyn StdError>> {
 
     let _ = consumer_client
         .create_subscription(&input_consumer_group)
-        .await;
+        .await
+        .inspect_err(|err| {
+            warn!(err = err.to_string(), "cannot create consumer group");
+        });
 
     println!(
         "Synthesizing input messages for topic {:?}",
