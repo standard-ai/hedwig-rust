@@ -215,7 +215,6 @@ where
         Ok(())
     }
 
-    // TODO SW-19526 bookmark to googlepubsub publisher
     /// Create a a new [`Publisher`] instance for publishing messages.
     ///
     /// Multiple publishers can be created using the same client, for example to use different
