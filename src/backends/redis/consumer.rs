@@ -17,14 +17,6 @@ use crate::{redis::PAYLOAD_KEY, Headers, ValidatedMessage};
 
 use super::StreamName;
 
-// #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-// pub struct SubscriptionName(String);
-//
-// impl SubscriptionName {
-//     pub fn new(subscription: impl Into<String>) -> Self {
-//         Self(subscription.into())
-//     }
-// }
 
 #[derive(Debug, Clone)]
 pub struct ConsumerClient {
@@ -32,7 +24,7 @@ pub struct ConsumerClient {
 }
 
 impl ConsumerClient {
-    pub fn from_client(client: redis::Client, queue: String) -> Self {
+    pub fn from_client(client: redis::Client) -> Self {
         ConsumerClient { client }
     }
 }
