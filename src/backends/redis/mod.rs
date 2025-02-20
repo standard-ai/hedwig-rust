@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 mod consumer;
 mod publisher;
 

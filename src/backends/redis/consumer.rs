@@ -48,26 +48,25 @@ impl ConsumerClient {
             .get_multiplexed_async_connection()
             .await
             .unwrap();
-        let topic = config.topic.0.to_string();
-        let stream_name = format!("hedwig:{topic}");
+        let stream_name = &config.stream_name;
         let group_name = GroupName::from_queue(&self.queue);
 
         // The special ID $ is the ID of the last entry in the stream
         let id = "$";
 
         match con
-            .xgroup_create_mkstream(&stream_name, &group_name.0, id)
+            .xgroup_create_mkstream(&stream_name.0, &group_name.0, id)
             .await
         {
             Ok(()) => debug!(
                 group_name = &group_name.0,
-                stream_name = stream_name,
+                stream_name = &stream_name.0,
                 "redis consumer group created"
             ),
             Err(err) => warn!(
                 err = err.to_string(),
                 group_name = &group_name.0,
-                stream_name = stream_name,
+                stream_name = &stream_name.0,
                 "cannot create consumer group"
             ),
         }
@@ -144,7 +143,7 @@ impl ConsumerClient {
 }
 #[derive(Debug, Clone)]
 pub struct SubscriptionConfig<'s> {
-    pub topic: StreamName,
+    pub stream_name: StreamName,
     pub name: SubscriptionName<'s>,
 }
 

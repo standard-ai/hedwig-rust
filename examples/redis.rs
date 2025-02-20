@@ -126,7 +126,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
 
     consumer_client
         .create_subscription(SubscriptionConfig {
-            topic: input_topic_name.clone(),
+            stream_name: input_topic_name.clone(),
             name: subscription_name.clone(),
         })
         .await?;
