@@ -46,17 +46,17 @@ pub enum PublishError<M: EncodableMessage> {
     },
 }
 
-pub struct TopicConfig<'s> {
-    pub name: StreamName<'s>,
+pub struct TopicConfig {
+    pub name: StreamName,
 }
 
 impl PublisherClient {
-    pub async fn create_topic(&mut self, _topic: TopicConfig<'_>) -> Result<(), RedisError> {
+    pub async fn create_topic(&mut self, _topic: TopicConfig) -> Result<(), RedisError> {
         // TODO SW-19526 Implement create_topic
         Ok(())
     }
 
-    pub async fn delete_topic(&mut self, _topic: StreamName<'_>) -> Result<(), RedisError> {
+    pub async fn delete_topic(&mut self, _topic: StreamName) -> Result<(), RedisError> {
         // TODO SW-19526 Implement delete_topic
         Ok(())
     }
@@ -85,11 +85,7 @@ impl PublisherClient {
     }
 }
 
-async fn push(
-    con: &mut MultiplexedConnection,
-    key: &StreamName<'_>,
-    payload: &str,
-) -> RedisResult<()> {
+async fn push(con: &mut MultiplexedConnection, key: &StreamName, payload: &str) -> RedisResult<()> {
     // Use * as the id for the current timestamp
     let id = "*";
 

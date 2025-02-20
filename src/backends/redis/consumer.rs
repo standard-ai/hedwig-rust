@@ -50,25 +50,23 @@ impl ConsumerClient {
             .unwrap();
         let topic = config.topic.0.to_string();
         let stream_name = format!("hedwig:{topic}");
-        let subscription_name = config.name.0.to_string();
-        let queue = &self.queue;
-        let group_name = format!("hedwig:{queue}-{subscription_name}");
+        let group_name = GroupName::from_queue(&self.queue);
 
         // The special ID $ is the ID of the last entry in the stream
         let id = "$";
 
         match con
-            .xgroup_create_mkstream(&stream_name, &group_name, id)
+            .xgroup_create_mkstream(&stream_name, &group_name.0, id)
             .await
         {
             Ok(()) => debug!(
-                group_name = &group_name,
+                group_name = &group_name.0,
                 stream_name = stream_name,
                 "redis consumer group created"
             ),
             Err(err) => warn!(
                 err = err.to_string(),
-                group_name = group_name,
+                group_name = &group_name.0,
                 stream_name = stream_name,
                 "cannot create consumer group"
             ),
@@ -88,7 +86,7 @@ impl ConsumerClient {
         let topic = "user.created";
         let stream_name = format!("hedwig:{topic}");
         let group_name = subscription.0.to_string();
-        let consumer_name = uuid::Uuid::new_v4().to_string();
+        let consumer_name = ConsumerName::new();
 
         let stream_name = stream_name.clone();
 
@@ -97,7 +95,7 @@ impl ConsumerClient {
         // a requirement and the occasional message loss is acceptable. This is equivalent to acknowledging the
         // message when it is read.
         let stream_read_options = StreamReadOptions::default()
-            .group(&group_name, &consumer_name)
+            .group(&group_name, &consumer_name.0)
             .noack();
 
         debug!("Created stream: {stream_name}");
@@ -146,7 +144,7 @@ impl ConsumerClient {
 }
 #[derive(Debug, Clone)]
 pub struct SubscriptionConfig<'s> {
-    pub topic: StreamName<'s>,
+    pub topic: StreamName,
     pub name: SubscriptionName<'s>,
 }
 
@@ -256,5 +254,21 @@ impl crate::consumer::Consumer for RedisStream {
 
     fn stream(self) -> Self::Stream {
         self
+    }
+}
+
+struct ConsumerName(String);
+
+impl ConsumerName {
+    fn new() -> Self {
+        Self(uuid::Uuid::new_v4().to_string())
+    }
+}
+
+struct GroupName(String);
+
+impl GroupName {
+    fn from_queue(queue: impl Into<String>) -> Self {
+        Self(queue.into())
     }
 }

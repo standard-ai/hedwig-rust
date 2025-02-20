@@ -1,8 +1,8 @@
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
 use hedwig::{
     redis::{
-        ClientBuilder, ClientBuilderConfig, RedisMessage, SubscriptionConfig, SubscriptionName,
-        TopicConfig, StreamName,
+        ClientBuilder, ClientBuilderConfig, RedisMessage, StreamName, SubscriptionConfig,
+        SubscriptionName, TopicConfig,
     },
     validators, Consumer, DecodableMessage, EncodableMessage, Headers, Publisher,
 };
@@ -103,10 +103,10 @@ async fn main() -> Result<(), Box<dyn StdError>> {
 
     let builder = ClientBuilder::new(config).await?;
 
-    let input_topic_name = StreamName::new(USER_CREATED_TOPIC);
+    let input_topic_name = StreamName::from_topic(USER_CREATED_TOPIC);
     let subscription_name = SubscriptionName::new("user-metadata-updaters");
 
-    let output_topic_name = StreamName::new(USER_UPDATED_TOPIC);
+    let output_topic_name = StreamName::from_topic(USER_UPDATED_TOPIC);
     const APP_NAME: &str = "user-metadata-updater";
 
     let mut publisher_client = builder.build_publisher(APP_NAME).await?;
