@@ -7,7 +7,6 @@ use redis::{
     AsyncCommands, RedisResult,
 };
 use std::{
-    borrow::Cow,
     pin::Pin,
     task::{Context, Poll},
     time::SystemTime,
@@ -19,10 +18,10 @@ use crate::{redis::PAYLOAD_KEY, Headers, ValidatedMessage};
 use super::StreamName;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct SubscriptionName<'s>(Cow<'s, str>);
+pub struct SubscriptionName(String);
 
-impl<'s> SubscriptionName<'s> {
-    pub fn new(subscription: impl Into<Cow<'s, str>>) -> Self {
+impl SubscriptionName {
+    pub fn new(subscription: impl Into<String>) -> Self {
         Self(subscription.into())
     }
 }
@@ -67,7 +66,7 @@ async fn xgroup_create_mkstream(
 }
 
 impl ConsumerClient {
-    pub async fn create_subscription(&mut self, config: SubscriptionConfig<'_>) -> RedisResult<()> {
+    pub async fn create_subscription(&mut self, config: SubscriptionConfig) -> RedisResult<()> {
         let mut con = self
             .client
             .get_multiplexed_async_connection()
@@ -80,13 +79,13 @@ impl ConsumerClient {
 
     pub async fn delete_subscription(
         &mut self,
-        _subscription: SubscriptionName<'_>,
+        _subscription: SubscriptionName,
     ) -> RedisResult<()> {
         // TODO
         Ok(())
     }
 
-    pub async fn stream_subscription(&mut self, subscription: SubscriptionName<'_>) -> RedisStream {
+    pub async fn stream_subscription(&mut self, subscription: SubscriptionName) -> RedisStream {
         let topic = "user.created";
         let stream_name = format!("hedwig:{topic}");
         let group_name = subscription.0.to_string();
@@ -147,9 +146,9 @@ impl ConsumerClient {
     }
 }
 #[derive(Debug, Clone)]
-pub struct SubscriptionConfig<'s> {
+pub struct SubscriptionConfig {
     pub stream_name: StreamName,
-    pub name: SubscriptionName<'s>,
+    pub name: SubscriptionName,
 }
 
 /// A message received from Redis
