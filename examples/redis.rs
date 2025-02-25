@@ -201,8 +201,10 @@ async fn main() -> Result<(), Box<dyn StdError>> {
             .or_else(|publish_error| async move {
                 // if publishing fails, nack the failed messages to allow later retries
                 Err(match publish_error {
-                    hedwig::redis::PublishError::Publish { cause: _, message } => {
-                        let _ = message.0.nack().await;
+                    hedwig::redis::PublishError::Publish { cause: _, messages } => {
+                        for failed_transform in messages {
+                            failed_transform.0.nack().await?;
+                        }
                         Box::<dyn StdError>::from("Cannot publish message")
                     }
                     hedwig::redis::PublishError::InvalidMessage {

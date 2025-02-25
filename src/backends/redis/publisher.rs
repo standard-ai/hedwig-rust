@@ -25,16 +25,20 @@ impl PublisherClient {
 }
 
 /// Errors which can occur while publishing a message
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum PublishError<M: EncodableMessage> {
     /// An error from publishing
     Publish {
         /// The cause of the error
         cause: Box<dyn std::error::Error + Send + Sync>,
 
-        /// The message which failed to be published
-        message: M,
+        /// The batch of messages which failed to be published
+        messages: Vec<M>,
     },
+
+    /// An error from submitting a successfully published message to the user-provided response
+    /// sink
+    // Response(E),
 
     /// An error from validating the given message
     InvalidMessage {
@@ -196,7 +200,7 @@ where
             .try_send(encoded_message)
             .map_err(|cause| PublishError::Publish {
                 cause: cause.into(),
-                message,
+                messages: vec![message],
             })
     }
 

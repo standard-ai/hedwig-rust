@@ -11,7 +11,7 @@ use std::{
     task::{Context, Poll},
     time::SystemTime,
 };
-use tracing::{debug, warn};
+use tracing::warn;
 
 use crate::{redis::PAYLOAD_KEY, Headers, ValidatedMessage};
 
@@ -193,13 +193,14 @@ fn redis_to_hedwig(payload: &[u8]) -> Result<ValidatedMessage, RedisStreamError>
 #[derive(Debug)]
 pub struct AcknowledgeToken;
 
+#[derive(Debug, Clone, Eq, PartialEq, thiserror::Error)]
+#[error("failed to ack/nack/modify")]
 pub struct AcknowledgeError;
-pub struct ModifyAcknowledgeError;
 
 #[async_trait]
 impl crate::consumer::AcknowledgeToken for AcknowledgeToken {
     type AckError = AcknowledgeError;
-    type ModifyError = ModifyAcknowledgeError;
+    type ModifyError = AcknowledgeError;
     type NackError = AcknowledgeError;
 
     async fn ack(self) -> Result<(), Self::AckError> {
