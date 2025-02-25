@@ -207,10 +207,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
                         }
                         Box::<dyn StdError>::from("Cannot publish message")
                     }
-                    hedwig::redis::PublishError::InvalidMessage {
-                        cause: _,
-                        message: _,
-                    } => todo!(),
+                    err => Box::<dyn StdError>::from(err),
                 })
             })
             .await;

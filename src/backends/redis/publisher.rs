@@ -1,4 +1,5 @@
 use base64::Engine;
+use core::fmt;
 use futures_util::sink::Sink;
 use hedwig_core::Topic;
 use pin_project::pin_project;
@@ -26,7 +27,7 @@ impl PublisherClient {
 
 /// Errors which can occur while publishing a message
 #[derive(Debug)]
-pub enum PublishError<M: EncodableMessage> {
+pub enum PublishError<M: EncodableMessage, E> {
     /// An error from publishing
     Publish {
         /// The cause of the error
@@ -38,7 +39,7 @@ pub enum PublishError<M: EncodableMessage> {
 
     /// An error from submitting a successfully published message to the user-provided response
     /// sink
-    // Response(E),
+    Response(E),
 
     /// An error from validating the given message
     InvalidMessage {
@@ -48,6 +49,40 @@ pub enum PublishError<M: EncodableMessage> {
         /// The message which failed to be validated
         message: M,
     },
+}
+
+impl<M: EncodableMessage, E> fmt::Display for PublishError<M, E>
+where
+    M::Error: fmt::Display,
+    E: fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            PublishError::Publish { messages, .. } => f.write_fmt(format_args!(
+                "could not publish {} messages",
+                messages.len()
+            )),
+            PublishError::Response(..) => f.write_str(
+                "could not forward response for a successfully published message to the sink",
+            ),
+            PublishError::InvalidMessage { .. } => f.write_str("could not validate message"),
+        }
+    }
+}
+
+impl<M: EncodableMessage, E> std::error::Error for PublishError<M, E>
+where
+    M: fmt::Debug,
+    M::Error: std::error::Error + 'static,
+    E: std::error::Error + 'static,
+{
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            PublishError::Publish { cause, .. } => Some(cause.as_ref()),
+            PublishError::Response(cause) => Some(cause as &_),
+            PublishError::InvalidMessage { cause, .. } => Some(cause as &_),
+        }
+    }
 }
 
 pub struct TopicConfig {
@@ -106,7 +141,7 @@ where
     M: EncodableMessage + Send + 'static,
     S: Sink<M> + Send + 'static,
 {
-    type PublishError = PublishError<M>;
+    type PublishError = PublishError<M, RedisError>;
     type PublishSink = PublishSink<M, S>;
 
     // TODO SW-19526 For reliability, implement response sink, so users can ack messages
@@ -135,7 +170,7 @@ where
     M: EncodableMessage + Send + 'static,
     S: Sink<M> + Send + 'static,
 {
-    type Error = PublishError<M>;
+    type Error = PublishError<M, RedisError>;
 
     fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         // TODO SW-19526 Improve implementation by following trait doc
