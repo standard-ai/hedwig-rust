@@ -31,7 +31,7 @@ pub enum PublishError<M: EncodableMessage, E> {
     /// An error from publishing
     Publish {
         /// The cause of the error
-        cause: Box<dyn std::error::Error + Send + Sync>,
+        cause: RedisError,
 
         /// The batch of messages which failed to be published
         messages: Vec<M>,
@@ -78,7 +78,7 @@ where
 {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            PublishError::Publish { cause, .. } => Some(cause.as_ref()),
+            PublishError::Publish { cause, .. } => Some(cause),
             PublishError::Response(cause) => Some(cause as &_),
             PublishError::InvalidMessage { cause, .. } => Some(cause as &_),
         }
@@ -141,7 +141,7 @@ where
     M: EncodableMessage + Send + 'static,
     S: Sink<M> + Send + 'static,
 {
-    type PublishError = PublishError<M, RedisError>;
+    type PublishError = PublishError<M, S::Error>;
     type PublishSink = PublishSink<M, S>;
 
     // TODO SW-19526 For reliability, implement response sink, so users can ack messages
@@ -170,7 +170,7 @@ where
     M: EncodableMessage + Send + 'static,
     S: Sink<M> + Send + 'static,
 {
-    type Error = PublishError<M, RedisError>;
+    type Error = PublishError<M, S::Error>;
 
     fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         // TODO SW-19526 Improve implementation by following trait doc
@@ -234,7 +234,7 @@ where
             .sender
             .try_send(encoded_message)
             .map_err(|cause| PublishError::Publish {
-                cause: cause.into(),
+                cause: RedisError::GenericError(Box::new(cause)),
                 messages: vec![message],
             })
     }

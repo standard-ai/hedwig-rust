@@ -11,6 +11,10 @@ const ENCODING_ATTRIBUTE: (&str, &str) = ("hedwig_encoding", "base64");
 pub enum RedisError {
     #[error("data store disconnected")]
     ClientError(#[from] redis::RedisError),
+    #[error("deadline exceeded")]
+    DeadlineExceeded,
+    #[error("generic error")]
+    GenericError(Box<dyn std::error::Error + Send + Sync>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -28,6 +32,7 @@ impl From<hedwig_core::Topic> for StreamName {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct ClientBuilderConfig {
     pub endpoint: String,
 }
