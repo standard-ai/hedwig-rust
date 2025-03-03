@@ -36,17 +36,30 @@ async fn xgroup_create_mkstream(
     // The special ID $ is the ID of the last entry in the stream
     let id = "$";
 
+    tracing::info!(
+        "xgroup_create_mkstream {} {}",
+        &stream_name.0,
+        &group_name.0
+    );
+
     con.xgroup_create_mkstream(&stream_name.0, &group_name.0, id)
+        .await
+}
+
+async fn xread(
+    con: &mut MultiplexedConnection,
+    stream_name: &StreamName,
+    stream_read_options: &StreamReadOptions,
+) -> RedisResult<StreamReadReply> {
+    tracing::info!("xgroup_create_mkstream {}", &stream_name.0,);
+
+    con.xread_options(&[&stream_name.0], &[">"], &stream_read_options)
         .await
 }
 
 impl ConsumerClient {
     pub async fn create_subscription(&mut self, config: &Group) -> RedisResult<()> {
-        let mut con = self
-            .client
-            .get_multiplexed_async_connection()
-            .await
-            .unwrap();
+        let mut con = self.client.get_multiplexed_async_connection().await?;
         let stream_name = &config.stream_name;
         let group_name = &config.group_name;
         xgroup_create_mkstream(&mut con, stream_name, group_name).await
@@ -82,9 +95,9 @@ impl ConsumerClient {
         tokio::spawn(async move {
             loop {
                 // Read from the stream
-                let result: RedisResult<StreamReadReply> = con
-                    .xread_options(&[&stream_name.0], &[">"], &stream_read_options)
-                    .await;
+
+                let result: RedisResult<StreamReadReply> =
+                    xread(&mut con, &stream_name, &stream_read_options).await;
 
                 match result {
                     Ok(entry) => {
