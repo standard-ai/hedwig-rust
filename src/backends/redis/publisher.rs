@@ -132,6 +132,7 @@ async fn push(con: &mut MultiplexedConnection, key: &StreamName, payload: &str) 
         .await
 }
 
+#[derive(Clone)]
 pub struct Publisher {
     sender: tokio::sync::mpsc::Sender<EncodedMessage>,
 }
