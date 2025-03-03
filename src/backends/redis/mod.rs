@@ -13,7 +13,7 @@ pub enum RedisError {
     ClientError(#[from] redis::RedisError),
     #[error("deadline exceeded")]
     DeadlineExceeded,
-    #[error("generic error")]
+    #[error(transparent)]
     GenericError(Box<dyn std::error::Error + Send + Sync>),
 }
 
