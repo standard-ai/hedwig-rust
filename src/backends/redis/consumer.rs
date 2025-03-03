@@ -11,7 +11,7 @@ use std::{
     task::{Context, Poll},
     time::SystemTime,
 };
-use tracing::warn;
+use tracing::{info, trace, warn};
 
 use crate::{redis::PAYLOAD_KEY, Headers, ValidatedMessage};
 
@@ -36,10 +36,9 @@ async fn xgroup_create_mkstream(
     // The special ID $ is the ID of the last entry in the stream
     let id = "$";
 
-    tracing::info!(
+    info!(
         "xgroup_create_mkstream {} {}",
-        &stream_name.0,
-        &group_name.0
+        &stream_name.0, &group_name.0
     );
 
     con.xgroup_create_mkstream(&stream_name.0, &group_name.0, id)
@@ -51,9 +50,9 @@ async fn xread(
     stream_name: &StreamName,
     stream_read_options: &StreamReadOptions,
 ) -> RedisResult<StreamReadReply> {
-    tracing::info!("xgroup_create_mkstream {}", &stream_name.0,);
+    trace!("xreadgroup {}", &stream_name.0,);
 
-    con.xread_options(&[&stream_name.0], &[">"], &stream_read_options)
+    con.xread_options(&[&stream_name.0], &[">"], stream_read_options)
         .await
 }
 
