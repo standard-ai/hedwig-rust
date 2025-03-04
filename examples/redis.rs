@@ -148,6 +148,9 @@ async fn main() -> Result<(), Box<dyn StdError>> {
 
             println!("Sending message {:?}", message.name);
 
+            // TODO
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+
             // TODO googlepubsub error can be used with ? but this is not. Why?
             input_sink.feed(message).await.unwrap();
         }

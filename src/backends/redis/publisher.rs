@@ -1,6 +1,6 @@
 use base64::Engine;
 use core::fmt;
-use futures_util::{sink::Sink, FutureExt};
+use futures_util::sink::Sink;
 use hedwig_core::Topic;
 use pin_project::pin_project;
 use redis::{aio::MultiplexedConnection, AsyncCommands, RedisResult};
@@ -110,24 +110,13 @@ impl PublisherClient {
         // TODO SW-19526 It should be possible to refactor this without using mpsc
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
 
-        println!("Publisher task starting...");
         tokio::spawn(async move {
-            println!("Publisher task started");
-            loop {
-                println!("Publisher task waiting");
-                if let Some(EncodedMessage { topic, data }) = rx.recv().await {
-                    println!(
-                        "Publisher task message found. channel capacity={}",
-                        rx.capacity()
-                    );
-                    let key = StreamName::from(topic);
-                    // Encode as base64, because Redis needs it
-                    let payload = base64::engine::general_purpose::STANDARD.encode(data);
-                    // TODO SW-19526 Add error handling
-                    let _: Result<(), _> = push(&mut con, &key, payload.as_str()).await;
-                } else {
-                    break;
-                }
+            while let Some(EncodedMessage { topic, data }) = rx.recv().await {
+                let key = StreamName::from(topic);
+                // Encode as base64, because Redis needs it
+                let payload = base64::engine::general_purpose::STANDARD.encode(data);
+                // TODO SW-19526 Add error handling
+                let _: Result<(), _> = push(&mut con, &key, payload.as_str()).await;
             }
         });
 
@@ -187,23 +176,6 @@ where
     type Error = PublishError<M, S::Error>;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        // panic!();
-        println!("poll_ready");
-        // TODO SW-19526 Improve implementation by following trait doc
-        // Attempts to prepare the `Sink` to receive a value.
-        //
-        // This method must be called and return `Poll::Ready(Ok(()))` prior to
-        // each call to `start_send`.
-        //
-        // This method returns `Poll::Ready` once the underlying sink is ready to
-        // receive data. If this method returns `Poll::Pending`, the current task
-        // is registered to be notified (via `cx.waker().wake_by_ref()`) when `poll_ready`
-        // should be called again.
-        //
-        // In most cases, if the sink encounters an error, the sink will
-        // permanently be unable to receive items.
-        // Poll::Ready(Ok(()))
-
         let this = self.project();
 
         let Some(message) = this.buffer.take() else {
@@ -248,28 +220,6 @@ where
     }
 
     fn start_send(mut self: Pin<&mut Self>, message: M) -> Result<(), Self::Error> {
-        println!("start_send");
-        // TODO SW-19526 Improve implementation by following trait doc
-        // Begin the process of sending a value to the sink.
-        // Each call to this function must be preceded by a successful call to
-        // `poll_ready` which returned `Poll::Ready(Ok(()))`.
-        //
-        // As the name suggests, this method only *begins* the process of sending
-        // the item. If the sink employs buffering, the item isn't fully processed
-        // until the buffer is fully flushed. Since sinks are designed to work with
-        // asynchronous I/O, the process of actually writing out the data to an
-        // underlying object takes place asynchronously. **You *must* use
-        // `poll_flush` or `poll_close` in order to guarantee completion of a
-        // send**.
-        //
-        // Implementations of `poll_ready` and `start_send` will usually involve
-        // flushing behind the scenes in order to make room for new messages.
-        // It is only necessary to call `poll_flush` if you need to guarantee that
-        // *all* of the items placed into the `Sink` have been sent.
-        //
-        // In most cases, if the sink encounters an error, the sink will
-        // permanently be unable to receive items.
-
         let this = self.as_mut().project();
 
         if this.buffer.replace(message).is_some() {
