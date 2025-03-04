@@ -8,6 +8,7 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
+use tracing::trace;
 
 use crate::EncodableMessage;
 
@@ -176,15 +177,15 @@ where
     type Error = PublishError<M, S::Error>;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        trace!("poll_ready");
+
         let this = self.project();
 
         let Some(message) = this.buffer.take() else {
-            println!("buffer empty -> Ready");
             return Poll::Ready(Ok(()));
         };
 
         if this.sender.capacity() == 0 {
-            println!("channel full -> Pending");
             // TODO Is this right? Is this a form of busy waiting?
             cx.waker().wake_by_ref();
             return Poll::Pending;
@@ -210,7 +211,6 @@ where
         this.sender.try_send(encoded_message).unwrap();
 
         if this.sender.capacity() == 0 {
-            println!("channel full -> Pending");
             // TODO Is this right? Is this a form of busy waiting?
             cx.waker().wake_by_ref();
             Poll::Pending
@@ -220,6 +220,8 @@ where
     }
 
     fn start_send(mut self: Pin<&mut Self>, message: M) -> Result<(), Self::Error> {
+        trace!("start_send");
+
         let this = self.as_mut().project();
 
         if this.buffer.replace(message).is_some() {
@@ -230,37 +232,14 @@ where
     }
 
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        println!("poll_flush");
+        trace!("poll_flush");
         // TODO SW-19526 Improve implementation by following trait doc
-        // Flush any remaining output from this sink.
-        //
-        // Returns `Poll::Ready(Ok(()))` when no buffered items remain. If this
-        // value is returned then it is guaranteed that all previous values sent
-        // via `start_send` have been flushed.
-        //
-        // Returns `Poll::Pending` if there is more work left to do, in which
-        // case the current task is scheduled (via `cx.waker().wake_by_ref()`) to wake up when
-        // `poll_flush` should be called again.
-        //
-        // In most cases, if the sink encounters an error, the sink will
-        // permanently be unable to receive items.
         Poll::Ready(Ok(()))
     }
 
     fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        println!("poll_close");
+        trace!("poll_close");
         // TODO SW-19526 Improve implementation by following trait doc
-        // Flush any remaining output and close this sink, if necessary.
-        //
-        // Returns `Poll::Ready(Ok(()))` when no buffered items remain and the sink
-        // has been successfully closed.
-        //
-        // Returns `Poll::Pending` if there is more work left to do, in which
-        // case the current task is scheduled (via `cx.waker().wake_by_ref()`) to wake up when
-        // `poll_close` should be called again.
-        //
-        // If this function encounters an error, the sink should be considered to
-        // have failed permanently, and no more `Sink` methods should be called.
         Poll::Ready(Ok(()))
     }
 }
