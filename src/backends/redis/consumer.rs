@@ -90,6 +90,10 @@ impl ConsumerClient {
 
         tokio::spawn(async move {
             loop {
+                if tx.is_closed() {
+                    break;
+                }
+
                 let mut con = loop {
                     match client.get_multiplexed_async_connection().await {
                         Ok(con) => {
@@ -102,6 +106,8 @@ impl ConsumerClient {
                         }
                     }
                 };
+
+                info!("Redis connected");
 
                 loop {
                     // Read from the stream

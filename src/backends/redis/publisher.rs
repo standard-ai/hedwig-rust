@@ -6,9 +6,10 @@ use pin_project::pin_project;
 use redis::{aio::MultiplexedConnection, AsyncCommands, RedisResult};
 use std::{
     pin::Pin,
-    task::{Context, Poll}, time::Duration,
+    task::{Context, Poll},
+    time::Duration,
 };
-use tracing::{trace, warn};
+use tracing::{info, trace, warn};
 
 use crate::EncodableMessage;
 
@@ -120,6 +121,8 @@ impl PublisherClient {
                     }
                 }
             };
+
+            info!("Redis connected");
 
             while let Some(EncodedMessage { topic, data }) = rx.recv().await {
                 let key = StreamName::from(topic);
