@@ -1,6 +1,6 @@
 use base64::Engine;
 use core::fmt;
-use futures_util::sink::Sink;
+use futures_util::{sink::Sink, FutureExt};
 use hedwig_core::Topic;
 use pin_project::pin_project;
 use redis::{aio::MultiplexedConnection, AsyncCommands, RedisResult};
@@ -108,15 +108,26 @@ impl PublisherClient {
             .unwrap();
 
         // TODO SW-19526 It should be possible to refactor this without using mpsc
-        let (tx, mut rx) = tokio::sync::mpsc::channel(10);
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
 
+        println!("Publisher task starting...");
         tokio::spawn(async move {
-            while let Some(EncodedMessage { topic, data }) = rx.recv().await {
-                let key = StreamName::from(topic);
-                // Encode as base64, because Redis needs it
-                let payload = base64::engine::general_purpose::STANDARD.encode(data);
-                // TODO SW-19526 Add error handling
-                let _: Result<(), _> = push(&mut con, &key, payload.as_str()).await;
+            println!("Publisher task started");
+            loop {
+                println!("Publisher task waiting");
+                if let Some(EncodedMessage { topic, data }) = rx.recv().await {
+                    println!(
+                        "Publisher task message found. channel capacity={}",
+                        rx.capacity()
+                    );
+                    let key = StreamName::from(topic);
+                    // Encode as base64, because Redis needs it
+                    let payload = base64::engine::general_purpose::STANDARD.encode(data);
+                    // TODO SW-19526 Add error handling
+                    let _: Result<(), _> = push(&mut con, &key, payload.as_str()).await;
+                } else {
+                    break;
+                }
             }
         });
 
@@ -165,7 +176,7 @@ pub struct PublishSink<M: EncodableMessage, S: Sink<M>> {
     validator: M::Validator,
     sender: tokio::sync::mpsc::Sender<EncodedMessage>,
     _m: std::marker::PhantomData<(M, S)>,
-    buffer: Option<EncodedMessage>,
+    buffer: Option<M>,
 }
 
 impl<M, S> Sink<M> for PublishSink<M, S>
@@ -175,7 +186,8 @@ where
 {
     type Error = PublishError<M, S::Error>;
 
-    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        // panic!();
         println!("poll_ready");
         // TODO SW-19526 Improve implementation by following trait doc
         // Attempts to prepare the `Sink` to receive a value.
@@ -193,12 +205,45 @@ where
         // Poll::Ready(Ok(()))
 
         let this = self.project();
-        match this.buffer.take() {
-            Some(message) => match this.sender.try_send(message) {
-                Ok(_) => Poll::Ready(Ok(())),
-                Err(_) => Poll::Pending,
-            },
-            None => Poll::Ready(Ok(())),
+
+        let Some(message) = this.buffer.take() else {
+            println!("buffer empty -> Ready");
+            return Poll::Ready(Ok(()));
+        };
+
+        if this.sender.capacity() == 0 {
+            println!("channel full -> Pending");
+            // TODO Is this right? Is this a form of busy waiting?
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
+        }
+
+        let validated = match message.encode(this.validator) {
+            Ok(validated_msg) => validated_msg,
+            Err(err) => {
+                return Poll::Ready(Err(PublishError::InvalidMessage {
+                    cause: err,
+                    message,
+                }))
+            }
+        };
+
+        // TODO SW-19526 Better create an intermediate sink for encoding, see googlepubsub
+        let bytes = validated.into_data();
+        let encoded_message = EncodedMessage {
+            topic: message.topic(),
+            data: bytes,
+        };
+
+        this.sender.try_send(encoded_message).unwrap();
+
+        if this.sender.capacity() == 0 {
+            println!("channel full -> Pending");
+            // TODO Is this right? Is this a form of busy waiting?
+            cx.waker().wake_by_ref();
+            Poll::Pending
+        } else {
+            Poll::Ready(Ok(()))
         }
     }
 
@@ -227,24 +272,7 @@ where
 
         let this = self.as_mut().project();
 
-        let validated = match message.encode(this.validator) {
-            Ok(validated_msg) => validated_msg,
-            Err(err) => {
-                return Err(PublishError::InvalidMessage {
-                    cause: err,
-                    message,
-                })
-            }
-        };
-
-        // TODO SW-19526 Better create an intermediate sink for encoding, see googlepubsub
-        let bytes = validated.into_data();
-        let encoded_message = EncodedMessage {
-            topic: message.topic(),
-            data: bytes,
-        };
-
-        if this.buffer.replace(encoded_message).is_some() {
+        if this.buffer.replace(message).is_some() {
             panic!("each `start_send` must be preceded by a successful call to `poll_ready`");
         }
 
