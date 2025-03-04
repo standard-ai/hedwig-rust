@@ -108,7 +108,7 @@ impl PublisherClient {
             .unwrap();
 
         // TODO SW-19526 It should be possible to refactor this without using mpsc
-        let (tx, mut rx) = tokio::sync::mpsc::channel(1000);
+        let (tx, mut rx) = tokio::sync::mpsc::channel(10);
 
         tokio::spawn(async move {
             while let Some(EncodedMessage { topic, data }) = rx.recv().await {
@@ -155,6 +155,7 @@ where
             validator,
             sender: self.sender.clone(),
             _m: std::marker::PhantomData,
+            buffer: None,
         }
     }
 }
@@ -164,6 +165,7 @@ pub struct PublishSink<M: EncodableMessage, S: Sink<M>> {
     validator: M::Validator,
     sender: tokio::sync::mpsc::Sender<EncodedMessage>,
     _m: std::marker::PhantomData<(M, S)>,
+    buffer: Option<EncodedMessage>,
 }
 
 impl<M, S> Sink<M> for PublishSink<M, S>
@@ -174,6 +176,7 @@ where
     type Error = PublishError<M, S::Error>;
 
     fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        println!("poll_ready");
         // TODO SW-19526 Improve implementation by following trait doc
         // Attempts to prepare the `Sink` to receive a value.
         //
@@ -187,10 +190,20 @@ where
         //
         // In most cases, if the sink encounters an error, the sink will
         // permanently be unable to receive items.
-        Poll::Ready(Ok(()))
+        // Poll::Ready(Ok(()))
+
+        let this = self.project();
+        match this.buffer.take() {
+            Some(message) => match this.sender.try_send(message) {
+                Ok(_) => Poll::Ready(Ok(())),
+                Err(_) => Poll::Pending,
+            },
+            None => Poll::Ready(Ok(())),
+        }
     }
 
     fn start_send(mut self: Pin<&mut Self>, message: M) -> Result<(), Self::Error> {
+        println!("start_send");
         // TODO SW-19526 Improve implementation by following trait doc
         // Begin the process of sending a value to the sink.
         // Each call to this function must be preceded by a successful call to
@@ -231,16 +244,15 @@ where
             data: bytes,
         };
 
-        self.get_mut()
-            .sender
-            .try_send(encoded_message)
-            .map_err(|cause| PublishError::Publish {
-                cause: RedisError::GenericError(Box::new(cause)),
-                messages: vec![message],
-            })
+        if this.buffer.replace(encoded_message).is_some() {
+            panic!("each `start_send` must be preceded by a successful call to `poll_ready`");
+        }
+
+        Ok(())
     }
 
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        println!("poll_flush");
         // TODO SW-19526 Improve implementation by following trait doc
         // Flush any remaining output from this sink.
         //
@@ -258,6 +270,7 @@ where
     }
 
     fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        println!("poll_close");
         // TODO SW-19526 Improve implementation by following trait doc
         // Flush any remaining output and close this sink, if necessary.
         //

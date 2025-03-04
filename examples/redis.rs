@@ -146,6 +146,8 @@ async fn main() -> Result<(), Box<dyn StdError>> {
                 name: format!("Example Name #{}", i),
             };
 
+            println!("Sending message {:?}", message.name);
+
             // TODO googlepubsub error can be used with ? but this is not. Why?
             input_sink.feed(message).await.unwrap();
         }
