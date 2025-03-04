@@ -6,9 +6,9 @@ use pin_project::pin_project;
 use redis::{aio::MultiplexedConnection, AsyncCommands, RedisResult};
 use std::{
     pin::Pin,
-    task::{Context, Poll},
+    task::{Context, Poll}, time::Duration,
 };
-use tracing::trace;
+use tracing::{trace, warn};
 
 use crate::EncodableMessage;
 
@@ -102,16 +102,25 @@ impl PublisherClient {
     }
 
     pub async fn publisher(&self) -> Publisher {
-        let mut con = self
-            .client
-            .get_multiplexed_async_connection()
-            .await
-            .unwrap();
+        let client = self.client.clone();
 
         // TODO SW-19526 It should be possible to refactor this without using mpsc
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
 
         tokio::spawn(async move {
+            let mut con = loop {
+                match client.get_multiplexed_async_connection().await {
+                    Ok(con) => {
+                        break con;
+                    }
+                    Err(err) => {
+                        warn!("Error connecting to Redis: {:?}", err);
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                        continue;
+                    }
+                }
+            };
+
             while let Some(EncodedMessage { topic, data }) = rx.recv().await {
                 let key = StreamName::from(topic);
                 // Encode as base64, because Redis needs it

@@ -9,7 +9,7 @@ use redis::{
 use std::{
     pin::Pin,
     task::{Context, Poll},
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
 use tracing::{info, trace, warn};
 
@@ -76,6 +76,8 @@ impl ConsumerClient {
 
         let stream_name = stream_name.clone();
 
+        let client = self.client.clone();
+
         // TODO: SW-19526 Implement reliability
         // The NOACK subcommand can be used to avoid adding the message to the PEL in cases where reliability is not
         // a requirement and the occasional message loss is acceptable. This is equivalent to acknowledging the
@@ -84,42 +86,55 @@ impl ConsumerClient {
             .group(&group_name.0, &consumer_name.0)
             .noack();
 
-        let mut con = self
-            .client
-            .get_multiplexed_async_connection()
-            .await
-            .unwrap();
         let (tx, rx) = tokio::sync::mpsc::channel(1000);
 
         tokio::spawn(async move {
             loop {
-                // Read from the stream
+                let mut con = loop {
+                    match client.get_multiplexed_async_connection().await {
+                        Ok(con) => {
+                            break con;
+                        }
+                        Err(err) => {
+                            warn!("Error connecting to Redis: {:?}", err);
+                            tokio::time::sleep(Duration::from_secs(5)).await;
+                            continue;
+                        }
+                    }
+                };
 
-                let result: RedisResult<StreamReadReply> =
-                    xread(&mut con, &stream_name, &stream_read_options).await;
+                loop {
+                    // Read from the stream
 
-                match result {
-                    Ok(entry) => {
-                        for stream_key in entry.keys {
-                            for message in stream_key.ids {
-                                // TODO Do not ack immediately, use ack token instead
-                                let _: Result<(), _> = con
-                                    .xack(&stream_name.0, &group_name.0, &[&message.id])
-                                    .await;
+                    let result: RedisResult<StreamReadReply> =
+                        xread(&mut con, &stream_name, &stream_read_options).await;
 
-                                if let Some(redis::Value::BulkString(vec)) =
-                                    message.map.get(PAYLOAD_KEY)
-                                {
-                                    tx.send(vec.clone()).await.unwrap()
-                                } else {
-                                    // TODO Handle error instead of warn
-                                    warn!(message = ?message, "Unexpected message");
+                    match result {
+                        Ok(entry) => {
+                            for stream_key in entry.keys {
+                                for message in stream_key.ids {
+                                    // TODO Do not ack immediately, use ack token instead
+                                    let _: Result<(), _> = con
+                                        .xack(&stream_name.0, &group_name.0, &[&message.id])
+                                        .await;
+
+                                    if let Some(redis::Value::BulkString(vec)) =
+                                        message.map.get(PAYLOAD_KEY)
+                                    {
+                                        tx.send(vec.clone()).await.unwrap()
+                                    } else {
+                                        // TODO Handle error instead of warn
+                                        warn!(message = ?message, "Unexpected message");
+                                    }
                                 }
                             }
                         }
-                    }
-                    Err(err) => {
-                        warn!(err = ?err, "Stream error");
+                        Err(err) => {
+                            warn!(err = ?err, "Stream error");
+                            if err.is_io_error() {
+                                break;
+                            }
+                        }
                     }
                 }
             }
