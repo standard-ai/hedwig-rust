@@ -88,9 +88,10 @@ impl ConsumerClient {
         // message when it is read.
         let stream_read_options = StreamReadOptions::default()
             .group(&group_name.0, &consumer_name.0)
-            // Return as soon as there is at least one message to read
-            .count(1)
-            // Block for up to 1 second (default behavior is to return immediately)
+            // Try to read batches.
+            .count(10)
+            // Block for up to 1 second (default behavior is to return immediately) for a single message. This does not
+            // block until the batch is complete, just for a single message.
             .block(1_000)
             .noack();
 
