@@ -7,7 +7,7 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
-use tracing::{info, trace, warn};
+use tracing::{info, warn};
 
 use crate::{redis::EncodedMessage, EncodableMessage};
 
@@ -268,8 +268,6 @@ where
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<(), PublishError<M, S::Error>>> {
-        trace!("poll_flush");
-
         let this = self.project();
 
         let Some(message) = this.buffer.take() else {

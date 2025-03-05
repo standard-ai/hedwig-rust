@@ -125,7 +125,6 @@ impl ConsumerClient {
                                             .xack(&stream_name.0, &group_name.0, &[&message.id])
                                             .await;
 
-                                        // TODO Read schema
                                         if let (
                                             Some(redis::Value::BulkString(b64_data)),
                                             Some(redis::Value::BulkString(schema)),
@@ -139,13 +138,17 @@ impl ConsumerClient {
                                             let topic = Topic::from(stream_name.as_topic());
                                             let b64_data = String::from_utf8(b64_data.clone())
                                                 .expect("Expecting utf8 encoded payload");
-                                            tx.send(EncodedMessage {
-                                                schema,
-                                                topic,
-                                                b64_data,
-                                            })
-                                            .await
-                                            .expect("Expecting channel")
+
+                                            if let Err(err) = tx
+                                                .send(EncodedMessage {
+                                                    schema,
+                                                    topic,
+                                                    b64_data,
+                                                })
+                                                .await
+                                            {
+                                                warn!(err = ?err, "Internal error");
+                                            }
                                         } else {
                                             // TODO Handle error instead of warn
                                             warn!(message = ?message, "Invalid message");
@@ -218,7 +221,7 @@ impl stream::Stream for RedisStream {
         let this = self.as_mut().project();
         this.receiver.poll_recv(cx).map(|opt| {
             opt.map(|encoded_message| {
-                let validated_message = redis_to_hedwig(&encoded_message).unwrap();
+                let validated_message = redis_to_hedwig(encoded_message).unwrap();
                 Ok(RedisMessage {
                     ack_token: AcknowledgeToken,
                     message: validated_message,
@@ -228,11 +231,11 @@ impl stream::Stream for RedisStream {
     }
 }
 
-fn redis_to_hedwig(encoded_message: &EncodedMessage) -> Result<ValidatedMessage, RedisStreamError> {
+fn redis_to_hedwig(encoded_message: EncodedMessage) -> Result<ValidatedMessage, RedisStreamError> {
     use base64::Engine;
 
     let b64_data = &encoded_message.b64_data;
-    let schema = encoded_message.topic.to_string();
+    let schema = encoded_message.schema;
 
     let data = base64::engine::general_purpose::STANDARD
         .decode(b64_data)
