@@ -10,14 +10,13 @@ use redis::aio::ConnectionManagerConfig;
 const PAYLOAD_KEY: &str = "hedwig_payload";
 const ENCODING_ATTRIBUTE: (&str, &str) = ("hedwig_encoding", "base64");
 
-const BACKOFF_FACTOR: Duration = Duration::from_secs(1);
 const BACKOFF_MAX_DELAY: Duration = Duration::from_secs(300);
 
 fn connection_manager_config() -> ConnectionManagerConfig {
     ConnectionManagerConfig::new()
-        // Note: despite ConnectionManagerConfig documentations says that
-        // a factor of 1000 means 1 sec, it is wrong. It's millis.
-        .set_factor(BACKOFF_FACTOR.as_secs())
+        // Note: despite ConnectionManagerConfig documentations says that a factor of 1000 means 1 sec, it is wrong.
+        // This is how the delay is muliplied at each retry, starting from 1s.
+        .set_factor(2)
         // This is really millis, not secs
         .set_max_delay(BACKOFF_MAX_DELAY.as_millis() as u64)
 }
