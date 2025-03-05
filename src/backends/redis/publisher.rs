@@ -108,27 +108,38 @@ impl PublisherClient {
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
 
         tokio::spawn(async move {
-            let mut con = loop {
-                match client.get_multiplexed_async_connection().await {
-                    Ok(con) => {
-                        break con;
+            loop {
+                if rx.is_closed() {
+                    break;
+                }
+
+                let mut con = loop {
+                    match client.get_multiplexed_async_connection().await {
+                        Ok(con) => {
+                            break con;
+                        }
+                        Err(err) => {
+                            warn!("Error connecting to Redis: {:?}", err);
+                            tokio::time::sleep(Duration::from_secs(5)).await;
+                            continue;
+                        }
                     }
-                    Err(err) => {
-                        warn!("Error connecting to Redis: {:?}", err);
-                        tokio::time::sleep(Duration::from_secs(5)).await;
-                        continue;
+                };
+
+                info!("Redis connected");
+
+                while let Some(EncodedMessage { topic, data }) = rx.recv().await {
+                    let key = StreamName::from(topic);
+                    // Encode as base64, because Redis needs it
+                    let payload = base64::engine::general_purpose::STANDARD.encode(data);
+
+                    if let Err(err) = push(&mut con, &key, payload.as_str()).await {
+                        warn!("{:?}", err);
+                        if err.is_io_error() {
+                            break;
+                        }
                     }
                 }
-            };
-
-            info!("Redis connected");
-
-            while let Some(EncodedMessage { topic, data }) = rx.recv().await {
-                let key = StreamName::from(topic);
-                // Encode as base64, because Redis needs it
-                let payload = base64::engine::general_purpose::STANDARD.encode(data);
-                // TODO SW-19526 Add error handling
-                let _: Result<(), _> = push(&mut con, &key, payload.as_str()).await;
             }
         });
 
