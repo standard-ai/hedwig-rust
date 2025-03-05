@@ -2,7 +2,11 @@ use base64::Engine;
 use core::fmt;
 use futures_util::sink::Sink;
 use pin_project::pin_project;
-use redis::{aio::ConnectionManager, AsyncCommands, RedisResult};
+use redis::{
+    aio::ConnectionManager,
+    streams::{StreamTrimStrategy, StreamTrimmingMode},
+    AsyncCommands, RedisResult,
+};
 use std::{
     pin::Pin,
     task::{Context, Poll},
@@ -151,7 +155,13 @@ async fn push(
     // Use * as the id for the current timestamp
     let id = "*";
 
-    con.xadd(
+    // TODO Dirty hack to avoid the queue increasing indefinitely
+    let options = redis::streams::StreamAddOptions::default().trim(StreamTrimStrategy::maxlen(
+        StreamTrimmingMode::Approx,
+        1_000,
+    ));
+
+    con.xadd_options(
         &key.0,
         id,
         &[
@@ -159,6 +169,7 @@ async fn push(
             (SCHEMA_KEY, schema),
             ENCODING_ATTRIBUTE,
         ],
+        &options,
     )
     .await
 }
