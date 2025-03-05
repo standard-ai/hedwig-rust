@@ -3,7 +3,10 @@ use core::fmt;
 use futures_util::sink::Sink;
 use hedwig_core::Topic;
 use pin_project::pin_project;
-use redis::{aio::MultiplexedConnection, AsyncCommands, RedisResult};
+use redis::{
+    aio::{ConnectionManager, MultiplexedConnection},
+    AsyncCommands, ConnectionLike, RedisResult,
+};
 use std::{
     pin::Pin,
     task::{Context, Poll},
@@ -113,30 +116,19 @@ impl PublisherClient {
                     break;
                 }
 
-                let mut con = loop {
-                    match client.get_multiplexed_async_connection().await {
-                        Ok(con) => {
-                            break con;
-                        }
-                        Err(err) => {
-                            warn!("Error connecting to Redis: {:?}", err);
-                            tokio::time::sleep(Duration::from_secs(5)).await;
-                            continue;
-                        }
-                    }
-                };
+                if let Ok(mut con) = ConnectionManager::new(client.clone()).await {
+                    info!("Redis connected");
 
-                info!("Redis connected");
+                    while let Some(EncodedMessage { topic, data }) = rx.recv().await {
+                        let key = StreamName::from(topic);
+                        // Encode as base64, because Redis needs it
+                        let payload = base64::engine::general_purpose::STANDARD.encode(data);
 
-                while let Some(EncodedMessage { topic, data }) = rx.recv().await {
-                    let key = StreamName::from(topic);
-                    // Encode as base64, because Redis needs it
-                    let payload = base64::engine::general_purpose::STANDARD.encode(data);
-
-                    if let Err(err) = push(&mut con, &key, payload.as_str()).await {
-                        warn!("{:?}", err);
-                        if err.is_io_error() {
-                            break;
+                        if let Err(err) = push(&mut con, &key, payload.as_str()).await {
+                            warn!("{:?}", err);
+                            if err.is_io_error() {
+                                break;
+                            }
                         }
                     }
                 }
@@ -147,7 +139,7 @@ impl PublisherClient {
     }
 }
 
-async fn push(con: &mut MultiplexedConnection, key: &StreamName, payload: &str) -> RedisResult<()> {
+async fn push(con: &mut ConnectionManager, key: &StreamName, payload: &str) -> RedisResult<()> {
     // Use * as the id for the current timestamp
     let id = "*";
 
