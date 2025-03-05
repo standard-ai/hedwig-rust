@@ -189,51 +189,10 @@ where
     type Error = PublishError<M, S::Error>;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        trace!("poll_ready");
-
-        let this = self.project();
-
-        let Some(message) = this.buffer.take() else {
-            return Poll::Ready(Ok(()));
-        };
-
-        if this.sender.capacity() == 0 {
-            // TODO Is this right? Is this a form of busy waiting?
-            cx.waker().wake_by_ref();
-            return Poll::Pending;
-        }
-
-        let validated = match message.encode(this.validator) {
-            Ok(validated_msg) => validated_msg,
-            Err(err) => {
-                return Poll::Ready(Err(PublishError::InvalidMessage {
-                    cause: err,
-                    message,
-                }))
-            }
-        };
-
-        // TODO SW-19526 Better create an intermediate sink for encoding, see googlepubsub
-        let bytes = validated.into_data();
-        let encoded_message = EncodedMessage {
-            topic: message.topic(),
-            data: bytes,
-        };
-
-        this.sender.try_send(encoded_message).unwrap();
-
-        if this.sender.capacity() == 0 {
-            // TODO Is this right? Is this a form of busy waiting?
-            cx.waker().wake_by_ref();
-            Poll::Pending
-        } else {
-            Poll::Ready(Ok(()))
-        }
+        self.poll_flush_buffered_message(cx)
     }
 
     fn start_send(mut self: Pin<&mut Self>, message: M) -> Result<(), Self::Error> {
-        trace!("start_send");
-
         let this = self.as_mut().project();
 
         if this.buffer.replace(message).is_some() {
@@ -244,6 +203,53 @@ where
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.poll_flush_buffered_message(cx)
+    }
+
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
+struct EncodedMessage {
+    topic: Topic,
+    data: bytes::Bytes,
+}
+
+fn encode_message<M>(
+    validator: &M::Validator,
+    message: M,
+) -> Result<EncodedMessage, PublishError<M, std::convert::Infallible>>
+where
+    M: EncodableMessage + Send + 'static,
+{
+    let validated = match message.encode(validator) {
+        Ok(validated_msg) => validated_msg,
+        Err(err) => {
+            return Err(PublishError::InvalidMessage {
+                cause: err,
+                message,
+            })
+        }
+    };
+
+    // TODO SW-19526 Better create an intermediate sink for encoding, see googlepubsub
+    let bytes = validated.into_data();
+    Ok(EncodedMessage {
+        topic: message.topic(),
+        data: bytes,
+    })
+}
+
+impl<M, S> PublishSink<M, S>
+where
+    M: EncodableMessage + Send + 'static,
+    S: Sink<M> + Send + 'static,
+{
+    fn poll_flush_buffered_message(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), PublishError<M, S::Error>>> {
         trace!("poll_flush");
 
         let this = self.project();
@@ -253,47 +259,21 @@ where
         };
 
         if this.sender.capacity() == 0 {
-            // TODO Is this right? Is this a form of busy waiting?
             cx.waker().wake_by_ref();
             return Poll::Pending;
         }
 
-        let validated = match message.encode(this.validator) {
-            Ok(validated_msg) => validated_msg,
-            Err(err) => {
-                return Poll::Ready(Err(PublishError::InvalidMessage {
-                    cause: err,
-                    message,
-                }))
-            }
-        };
-
-        // TODO SW-19526 Better create an intermediate sink for encoding, see googlepubsub
-        let bytes = validated.into_data();
-        let encoded_message = EncodedMessage {
-            topic: message.topic(),
-            data: bytes,
+        let Ok(encoded_message) = encode_message(this.validator, message) else {
+            return Poll::Ready(Ok(()));
         };
 
         this.sender.try_send(encoded_message).unwrap();
 
         if this.sender.capacity() == 0 {
-            // TODO Is this right? Is this a form of busy waiting?
             cx.waker().wake_by_ref();
             Poll::Pending
         } else {
             Poll::Ready(Ok(()))
         }
     }
-
-    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        trace!("poll_close");
-        // TODO SW-19526 Improve implementation by following trait doc
-        Poll::Ready(Ok(()))
-    }
-}
-
-struct EncodedMessage {
-    topic: Topic,
-    data: bytes::Bytes,
 }
