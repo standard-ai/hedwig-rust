@@ -6,4 +6,3 @@ pub mod mock;
 
 #[cfg(feature = "redis")]
 pub mod redis;
-
