@@ -2,14 +2,14 @@ use async_trait::async_trait;
 use futures_util::stream;
 use pin_project::pin_project;
 use redis::{
-    aio::MultiplexedConnection,
+    aio::{ConnectionManager, MultiplexedConnection},
     streams::{StreamReadOptions, StreamReadReply},
     AsyncCommands, RedisResult,
 };
 use std::{
     pin::Pin,
     task::{Context, Poll},
-    time::{Duration, SystemTime},
+    time::SystemTime,
 };
 use tracing::{info, trace, warn};
 
@@ -46,7 +46,7 @@ async fn xgroup_create_mkstream(
 }
 
 async fn xread(
-    con: &mut MultiplexedConnection,
+    con: &mut ConnectionManager,
     stream_name: &StreamName,
     stream_read_options: &StreamReadOptions,
 ) -> RedisResult<StreamReadReply> {
@@ -98,51 +98,45 @@ impl ConsumerClient {
                     break;
                 }
 
-                let mut con = loop {
-                    match client.get_multiplexed_async_connection().await {
-                        Ok(con) => {
-                            break con;
-                        }
-                        Err(err) => {
-                            warn!("Error connecting to Redis: {:?}", err);
-                            tokio::time::sleep(Duration::from_secs(5)).await;
-                            continue;
-                        }
-                    }
-                };
+                if let Ok(mut con) = ConnectionManager::new_with_config(
+                    client.clone(),
+                    super::connection_manager_config(),
+                )
+                .await
+                {
+                    info!("Redis connected");
 
-                info!("Redis connected");
+                    loop {
+                        // Read from the stream
 
-                loop {
-                    // Read from the stream
+                        let result: RedisResult<StreamReadReply> =
+                            xread(&mut con, &stream_name, &stream_read_options).await;
 
-                    let result: RedisResult<StreamReadReply> =
-                        xread(&mut con, &stream_name, &stream_read_options).await;
+                        match result {
+                            Ok(entry) => {
+                                for stream_key in entry.keys {
+                                    for message in stream_key.ids {
+                                        // TODO Do not ack immediately, use ack token instead
+                                        let _: Result<(), _> = con
+                                            .xack(&stream_name.0, &group_name.0, &[&message.id])
+                                            .await;
 
-                    match result {
-                        Ok(entry) => {
-                            for stream_key in entry.keys {
-                                for message in stream_key.ids {
-                                    // TODO Do not ack immediately, use ack token instead
-                                    let _: Result<(), _> = con
-                                        .xack(&stream_name.0, &group_name.0, &[&message.id])
-                                        .await;
-
-                                    if let Some(redis::Value::BulkString(vec)) =
-                                        message.map.get(PAYLOAD_KEY)
-                                    {
-                                        tx.send(vec.clone()).await.unwrap()
-                                    } else {
-                                        // TODO Handle error instead of warn
-                                        warn!(message = ?message, "Unexpected message");
+                                        if let Some(redis::Value::BulkString(vec)) =
+                                            message.map.get(PAYLOAD_KEY)
+                                        {
+                                            tx.send(vec.clone()).await.unwrap()
+                                        } else {
+                                            // TODO Handle error instead of warn
+                                            warn!(message = ?message, "Unexpected message");
+                                        }
                                     }
                                 }
                             }
-                        }
-                        Err(err) => {
-                            warn!(err = ?err, "Stream error");
-                            if err.is_io_error() {
-                                break;
+                            Err(err) => {
+                                warn!(err = ?err, "Stream error");
+                                if err.is_io_error() {
+                                    break;
+                                }
                             }
                         }
                     }

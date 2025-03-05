@@ -4,13 +4,12 @@ use futures_util::sink::Sink;
 use hedwig_core::Topic;
 use pin_project::pin_project;
 use redis::{
-    aio::{ConnectionManager, MultiplexedConnection},
-    AsyncCommands, ConnectionLike, RedisResult,
+    aio::ConnectionManager,
+    AsyncCommands, RedisResult,
 };
 use std::{
     pin::Pin,
     task::{Context, Poll},
-    time::Duration,
 };
 use tracing::{info, trace, warn};
 
@@ -116,7 +115,12 @@ impl PublisherClient {
                     break;
                 }
 
-                if let Ok(mut con) = ConnectionManager::new(client.clone()).await {
+                if let Ok(mut con) = ConnectionManager::new_with_config(
+                    client.clone(),
+                    super::connection_manager_config(),
+                )
+                .await
+                {
                     info!("Redis connected");
 
                     while let Some(EncodedMessage { topic, data }) = rx.recv().await {
