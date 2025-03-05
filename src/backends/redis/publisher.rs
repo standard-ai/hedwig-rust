@@ -105,7 +105,6 @@ impl PublisherClient {
     pub async fn publisher(&self) -> Publisher {
         let client = self.client.clone();
 
-        // TODO SW-19526 It should be possible to refactor this without using mpsc
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
 
         tokio::spawn(async move {
