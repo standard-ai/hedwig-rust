@@ -84,9 +84,13 @@ impl ConsumerClient {
         // message when it is read.
         let stream_read_options = StreamReadOptions::default()
             .group(&group_name.0, &consumer_name.0)
+            // Return as soon as there is at least one message to read
+            .count(1)
+            // Block for up to 1 second (default behavior is to return immediately)
+            .block(1_000)
             .noack();
 
-        let (tx, rx) = tokio::sync::mpsc::channel(1000);
+        let (tx, rx) = tokio::sync::mpsc::channel(1);
 
         tokio::spawn(async move {
             loop {
