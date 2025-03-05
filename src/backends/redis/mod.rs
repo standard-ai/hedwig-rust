@@ -7,6 +7,8 @@ pub use consumer::*;
 pub use publisher::*;
 use redis::aio::ConnectionManagerConfig;
 
+use hedwig_core::Topic;
+
 const PAYLOAD_KEY: &str = "hedwig_payload";
 const ENCODING_ATTRIBUTE: (&str, &str) = ("hedwig_encoding", "base64");
 
@@ -37,6 +39,10 @@ pub struct StreamName(String);
 impl StreamName {
     pub fn from_topic(topic: impl std::fmt::Display) -> Self {
         StreamName(format!("hedwig:{topic}"))
+    }
+
+    pub fn as_topic(&self) -> &str {
+        &self.0.as_str()[7..]
     }
 }
 
@@ -78,4 +84,9 @@ impl ClientBuilder {
         let client = redis::Client::open(self.config.endpoint.as_str())?;
         Ok(PublisherClient::from_client(client))
     }
+}
+
+struct EncodedMessage {
+    topic: Topic,
+    b64_data: String,
 }

@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use futures_util::stream;
+use hedwig_core::Topic;
 use pin_project::pin_project;
 use redis::{
     aio::{ConnectionManager, MultiplexedConnection},
@@ -15,7 +16,7 @@ use tracing::{info, trace, warn};
 
 use crate::{redis::PAYLOAD_KEY, Headers, ValidatedMessage};
 
-use super::StreamName;
+use super::{EncodedMessage, StreamName};
 
 #[derive(Debug, Clone)]
 pub struct ConsumerClient {
@@ -121,10 +122,18 @@ impl ConsumerClient {
                                             .xack(&stream_name.0, &group_name.0, &[&message.id])
                                             .await;
 
-                                        if let Some(redis::Value::BulkString(vec)) =
+                                        if let Some(redis::Value::BulkString(b64_data)) =
                                             message.map.get(PAYLOAD_KEY)
                                         {
-                                            tx.send(vec.clone()).await.unwrap()
+                                            tx.send(EncodedMessage {
+                                                topic: Topic::from(stream_name.as_topic()),
+                                                b64_data: String::from_utf8(b64_data.clone())
+                                                    .expect(
+                                                        "Expecting base64 utf-8 encoded string",
+                                                    ),
+                                            })
+                                            .await
+                                            .unwrap()
                                         } else {
                                             // TODO Handle error instead of warn
                                             warn!(message = ?message, "Unexpected message");
@@ -187,7 +196,7 @@ type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 /// Created by [`ConsumerClient::stream_subscription`]
 #[pin_project]
 pub struct RedisStream {
-    receiver: tokio::sync::mpsc::Receiver<Vec<u8>>,
+    receiver: tokio::sync::mpsc::Receiver<EncodedMessage>,
 }
 
 impl stream::Stream for RedisStream {
@@ -207,15 +216,18 @@ impl stream::Stream for RedisStream {
     }
 }
 
-fn redis_to_hedwig(payload: &[u8]) -> Result<ValidatedMessage, RedisStreamError> {
+fn redis_to_hedwig(encoded_message: &EncodedMessage) -> Result<ValidatedMessage, RedisStreamError> {
     use base64::Engine;
+
+    let b64_data = &encoded_message.b64_data;
+    let schema = encoded_message.topic.to_string();
+
     let data = base64::engine::general_purpose::STANDARD
-        .decode(payload)
+        .decode(b64_data)
         .map_err(|_| RedisStreamError::MalformedMessage)?;
 
     let id = uuid::Uuid::new_v4();
     let timestamp = SystemTime::now();
-    let schema = "user.created/1.0"; // TODO
     let headers = Headers::new();
 
     Ok(ValidatedMessage::new(id, timestamp, schema, headers, data))
