@@ -11,7 +11,7 @@ use tracing::{info, trace, warn};
 
 use crate::{redis::EncodedMessage, EncodableMessage};
 
-use super::{RedisError, PAYLOAD_KEY};
+use super::{RedisError, PAYLOAD_KEY, SCHEMA_KEY};
 use super::{StreamName, ENCODING_ATTRIBUTE};
 
 #[derive(Debug, Clone)]
@@ -119,10 +119,15 @@ impl PublisherClient {
                 {
                     info!("Redis connected");
 
-                    while let Some(EncodedMessage { topic, b64_data }) = rx.recv().await {
+                    while let Some(EncodedMessage {
+                        topic,
+                        b64_data,
+                        schema,
+                    }) = rx.recv().await
+                    {
                         let key = StreamName::from(topic);
 
-                        if let Err(err) = push(&mut con, &key, b64_data.as_str()).await {
+                        if let Err(err) = push(&mut con, &key, b64_data.as_str(), &schema).await {
                             warn!("{:?}", err);
                             if err.is_io_error() {
                                 break;
@@ -137,12 +142,25 @@ impl PublisherClient {
     }
 }
 
-async fn push(con: &mut ConnectionManager, key: &StreamName, payload: &str) -> RedisResult<()> {
+async fn push(
+    con: &mut ConnectionManager,
+    key: &StreamName,
+    payload: &str,
+    schema: &str,
+) -> RedisResult<()> {
     // Use * as the id for the current timestamp
     let id = "*";
 
-    con.xadd(&key.0, id, &[(PAYLOAD_KEY, payload), ENCODING_ATTRIBUTE])
-        .await
+    con.xadd(
+        &key.0,
+        id,
+        &[
+            (PAYLOAD_KEY, payload),
+            (SCHEMA_KEY, schema),
+            ENCODING_ATTRIBUTE,
+        ],
+    )
+    .await
 }
 
 #[derive(Clone)]
@@ -228,12 +246,14 @@ where
         }
     };
 
-    let bytes = validated.into_data();
+    let bytes = validated.data();
+    let schema = validated.schema().to_string().into();
 
     // Encode as base64, because Redis needs it
     let b64_data = base64::engine::general_purpose::STANDARD.encode(bytes);
 
     Ok(EncodedMessage {
+        schema,
         topic: message.topic(),
         b64_data,
     })

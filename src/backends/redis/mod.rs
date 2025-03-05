@@ -10,6 +10,7 @@ use redis::aio::ConnectionManagerConfig;
 use hedwig_core::Topic;
 
 const PAYLOAD_KEY: &str = "hedwig_payload";
+const SCHEMA_KEY: &str = "hedwig_schema";
 const ENCODING_ATTRIBUTE: (&str, &str) = ("hedwig_encoding", "base64");
 
 const BACKOFF_MAX_DELAY: Duration = Duration::from_secs(300);
@@ -88,5 +89,6 @@ impl ClientBuilder {
 
 struct EncodedMessage {
     topic: Topic,
+    schema: std::borrow::Cow<'static, str>,
     b64_data: String,
 }

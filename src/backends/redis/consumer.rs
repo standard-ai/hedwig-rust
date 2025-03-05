@@ -14,7 +14,10 @@ use std::{
 };
 use tracing::{info, trace, warn};
 
-use crate::{redis::PAYLOAD_KEY, Headers, ValidatedMessage};
+use crate::{
+    redis::{PAYLOAD_KEY, SCHEMA_KEY},
+    Headers, ValidatedMessage,
+};
 
 use super::{EncodedMessage, StreamName};
 
@@ -122,21 +125,30 @@ impl ConsumerClient {
                                             .xack(&stream_name.0, &group_name.0, &[&message.id])
                                             .await;
 
-                                        if let Some(redis::Value::BulkString(b64_data)) =
-                                            message.map.get(PAYLOAD_KEY)
-                                        {
+                                        // TODO Read schema
+                                        if let (
+                                            Some(redis::Value::BulkString(b64_data)),
+                                            Some(redis::Value::BulkString(schema)),
+                                        ) = (
+                                            message.map.get(PAYLOAD_KEY),
+                                            message.map.get(SCHEMA_KEY),
+                                        ) {
+                                            let schema = String::from_utf8(schema.clone())
+                                                .expect("Expecting utf8 encoded schema")
+                                                .into();
+                                            let topic = Topic::from(stream_name.as_topic());
+                                            let b64_data = String::from_utf8(b64_data.clone())
+                                                .expect("Expecting utf8 encoded payload");
                                             tx.send(EncodedMessage {
-                                                topic: Topic::from(stream_name.as_topic()),
-                                                b64_data: String::from_utf8(b64_data.clone())
-                                                    .expect(
-                                                        "Expecting base64 utf-8 encoded string",
-                                                    ),
+                                                schema,
+                                                topic,
+                                                b64_data,
                                             })
                                             .await
-                                            .unwrap()
+                                            .expect("Expecting channel")
                                         } else {
                                             // TODO Handle error instead of warn
-                                            warn!(message = ?message, "Unexpected message");
+                                            warn!(message = ?message, "Invalid message");
                                         }
                                     }
                                 }
