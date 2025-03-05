@@ -243,10 +243,47 @@ where
         Ok(())
     }
 
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         trace!("poll_flush");
-        // TODO SW-19526 Improve implementation by following trait doc
-        Poll::Ready(Ok(()))
+
+        let this = self.project();
+
+        let Some(message) = this.buffer.take() else {
+            return Poll::Ready(Ok(()));
+        };
+
+        if this.sender.capacity() == 0 {
+            // TODO Is this right? Is this a form of busy waiting?
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
+        }
+
+        let validated = match message.encode(this.validator) {
+            Ok(validated_msg) => validated_msg,
+            Err(err) => {
+                return Poll::Ready(Err(PublishError::InvalidMessage {
+                    cause: err,
+                    message,
+                }))
+            }
+        };
+
+        // TODO SW-19526 Better create an intermediate sink for encoding, see googlepubsub
+        let bytes = validated.into_data();
+        let encoded_message = EncodedMessage {
+            topic: message.topic(),
+            data: bytes,
+        };
+
+        this.sender.try_send(encoded_message).unwrap();
+
+        if this.sender.capacity() == 0 {
+            // TODO Is this right? Is this a form of busy waiting?
+            cx.waker().wake_by_ref();
+            Poll::Pending
+        } else {
+            Poll::Ready(Ok(()))
+        }
     }
 
     fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
