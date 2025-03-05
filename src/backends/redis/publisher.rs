@@ -3,10 +3,7 @@ use core::fmt;
 use futures_util::sink::Sink;
 use hedwig_core::Topic;
 use pin_project::pin_project;
-use redis::{
-    aio::ConnectionManager,
-    AsyncCommands, RedisResult,
-};
+use redis::{aio::ConnectionManager, AsyncCommands, RedisResult};
 use std::{
     pin::Pin,
     task::{Context, Poll},
@@ -239,7 +236,6 @@ where
         }
     };
 
-    // TODO SW-19526 Better create an intermediate sink for encoding, see googlepubsub
     let bytes = validated.into_data();
     Ok(EncodedMessage {
         topic: message.topic(),
@@ -270,16 +266,16 @@ where
         }
 
         let Ok(encoded_message) = encode_message(this.validator, message) else {
+            // Ignore errors
             return Poll::Ready(Ok(()));
         };
 
-        this.sender.try_send(encoded_message).unwrap();
-
-        if this.sender.capacity() == 0 {
-            cx.waker().wake_by_ref();
-            Poll::Pending
-        } else {
-            Poll::Ready(Ok(()))
+        match this.sender.try_send(encoded_message) {
+            Ok(_) => Poll::Ready(Ok(())),
+            Err(_) => {
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
         }
     }
 }
