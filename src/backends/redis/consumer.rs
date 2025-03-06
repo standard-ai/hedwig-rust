@@ -82,7 +82,7 @@ impl ConsumerClient {
 
         let client = self.client.clone();
 
-        // TODO: SW-19526 Implement reliability
+        // TODO: SW-19526 Implement reliability (use ack token)
         // The NOACK subcommand can be used to avoid adding the message to the PEL in cases where reliability is not
         // a requirement and the occasional message loss is acceptable. This is equivalent to acknowledging the
         // message when it is read.
@@ -119,11 +119,6 @@ impl ConsumerClient {
                             Ok(entry) => {
                                 for stream_key in entry.keys {
                                     for message in stream_key.ids {
-                                        // TODO Do not ack immediately, use ack token instead
-                                        let _: Result<(), _> = con
-                                            .xack(&stream_name.0, &group_name.0, &[&message.id])
-                                            .await;
-
                                         if let (
                                             Some(redis::Value::BulkString(b64_data)),
                                             Some(redis::Value::BulkString(schema)),
