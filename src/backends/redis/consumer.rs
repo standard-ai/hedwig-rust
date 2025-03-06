@@ -15,7 +15,7 @@ use std::{
 use tracing::{info, trace, warn};
 
 use crate::{
-    redis::{PAYLOAD_KEY, SCHEMA_KEY},
+    redis::{ID_KEY, PAYLOAD_KEY, SCHEMA_KEY},
     Headers, ValidatedMessage,
 };
 
@@ -122,9 +122,11 @@ impl ConsumerClient {
                                         if let (
                                             Some(redis::Value::BulkString(b64_data)),
                                             Some(redis::Value::BulkString(schema)),
+                                            Some(redis::Value::BulkString(id)),
                                         ) = (
                                             message.map.get(PAYLOAD_KEY),
                                             message.map.get(SCHEMA_KEY),
+                                            message.map.get(ID_KEY),
                                         ) {
                                             let schema = String::from_utf8(schema.clone())
                                                 .expect("Expecting utf8 encoded schema")
@@ -132,9 +134,12 @@ impl ConsumerClient {
                                             let topic = Topic::from(stream_name.as_topic());
                                             let b64_data = String::from_utf8(b64_data.clone())
                                                 .expect("Expecting utf8 encoded payload");
+                                            let id = String::from_utf8(id.clone())
+                                                .expect("Expecting utf8 encoded id");
 
                                             if let Err(err) = tx
                                                 .send(EncodedMessage {
+                                                    id,
                                                     schema,
                                                     topic,
                                                     b64_data,

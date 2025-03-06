@@ -15,8 +15,10 @@ use tracing::{info, warn};
 
 use crate::{redis::EncodedMessage, EncodableMessage};
 
-use super::{RedisError, PAYLOAD_KEY, SCHEMA_KEY};
-use super::{StreamName, ENCODING_ATTRIBUTE};
+use super::{
+    RedisError, FORMAT_VERSION_ATTR, ID_KEY, MESSAGE_TIMESTAMP_KEY, PAYLOAD_KEY, PUBLISHER_KEY, SCHEMA_KEY
+};
+use super::{StreamName, ENCODING_ATTR};
 
 #[derive(Debug, Clone)]
 pub struct PublisherClient {
@@ -124,6 +126,7 @@ impl PublisherClient {
                     info!("Redis connected");
 
                     while let Some(EncodedMessage {
+                        id,
                         topic,
                         b64_data,
                         schema,
@@ -131,7 +134,9 @@ impl PublisherClient {
                     {
                         let key = StreamName::from(topic);
 
-                        if let Err(err) = push(&mut con, &key, b64_data.as_str(), &schema).await {
+                        if let Err(err) =
+                            push(&mut con, &key, b64_data.as_str(), &schema, &id).await
+                        {
                             warn!("{:?}", err);
                             if err.is_io_error() {
                                 break;
@@ -151,23 +156,36 @@ async fn push(
     key: &StreamName,
     payload: &str,
     schema: &str,
+    hedwig_id: &str,
 ) -> RedisResult<()> {
-    // Use * as the id for the current timestamp
-    let id = "*";
-
     // TODO Dirty hack to avoid the queue increasing indefinitely
     let options = redis::streams::StreamAddOptions::default().trim(StreamTrimStrategy::maxlen(
         StreamTrimmingMode::Approx,
         1_000,
     ));
 
+    // TODO Original message timestamp instead of current time
+    let message_timestamp: String = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .to_string();
+
+    // TODO
+    let publisher = "unknown";
+
     con.xadd_options(
         &key.0,
-        id,
+        // Use * as the id for the current timestamp
+        "*",
         &[
             (PAYLOAD_KEY, payload),
+            FORMAT_VERSION_ATTR,
+            (ID_KEY, hedwig_id),
+            (MESSAGE_TIMESTAMP_KEY, &message_timestamp),
+            (PUBLISHER_KEY, publisher),
             (SCHEMA_KEY, schema),
-            ENCODING_ATTRIBUTE,
+            ENCODING_ATTR,
         ],
         &options,
     )
@@ -262,8 +280,10 @@ where
 
     // Encode as base64, because Redis needs it
     let b64_data = base64::engine::general_purpose::STANDARD.encode(bytes);
+    let id = validated.uuid().to_string();
 
     Ok(EncodedMessage {
+        id,
         schema,
         topic: message.topic(),
         b64_data,
