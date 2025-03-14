@@ -3,6 +3,7 @@ use hedwig::{
     redis::{ClientBuilder, ClientBuilderConfig, Group, GroupName, RedisMessage, StreamName},
     validators, AcknowledgeToken, Consumer, DecodableMessage, EncodableMessage, Headers, Publisher,
 };
+use tracing::info;
 use std::{
     error::Error as StdError,
     time::{Duration, SystemTime},
@@ -94,16 +95,17 @@ async fn main() -> Result<(), Box<dyn StdError>> {
                     name: format!("Example Name #{}", i),
                 };
 
-                println!("Sending message {:?}", message.name);
-
-                tokio::time::sleep(delay).await;
+                info!("Sending message {:?}", message.name);
 
                 input_sink.feed(message).await.unwrap();
+                tokio::time::sleep(delay).await;
             }
 
             input_sink.flush().await.unwrap();
+            info!("wait...");
+            tokio::time::sleep(Duration::from_secs(1)).await;
 
-            println!("Finished. Sent {} messages", args.count);
+            info!("Finished. Sent {} messages", args.count);
         }
         2 => {
             let mut read_stream = consumer_client
@@ -120,23 +122,23 @@ async fn main() -> Result<(), Box<dyn StdError>> {
                     Some(Ok(msg)) => {
                         let RedisMessage { ack_token, message } = msg;
                         let _ = ack_token.ack().await;
-                        println!("Received: {:?}", &message.name);
+                        info!("Received: {:?}", &message.name);
 
                         count += 1;
                     }
                     Some(Err(err)) => {
-                        println!("{:?}", err);
+                        info!("{:?}", err);
                         break;
                     }
                     None => {
                         panic!();
-                        // println!("Received {} messages", count);
+                        // info!("Received {} messages", count);
                         // tokio::time::sleep(Duration::from_secs(1)).await;
                     }
                 }
             }
 
-            println!("Finished. Received {} messages", count);
+            info!("Finished. Received {} messages", count);
         }
         _ => {
             panic!();
