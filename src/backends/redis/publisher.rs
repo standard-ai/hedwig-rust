@@ -112,10 +112,12 @@ impl PublisherClient {
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
 
-        let mut count = 0;
-
         tokio::spawn(async move {
             loop {
+                if rx.is_closed() {
+                    break;
+                }
+
                 if let Ok(mut con) = ConnectionManager::new_with_config(
                     client.clone(),
                     super::connection_manager_config(),
@@ -131,8 +133,6 @@ impl PublisherClient {
                         schema,
                     }) = rx.recv().await
                     {
-                        count += 1;
-                        println!("> {count}");
                         let key = StreamName::from(topic);
 
                         if let Err(err) =
@@ -144,7 +144,6 @@ impl PublisherClient {
                             }
                         }
                     }
-                    println!("channel closed");
                 }
             }
         });
@@ -176,28 +175,25 @@ async fn push(
     // TODO
     let publisher = "unknown";
 
-    println!("xadd start");
-    let res = con
-        .xadd_options(
-            &key.0,
-            // Use * as the id for the current timestamp
-            "*",
-            &[
-                (PAYLOAD_KEY, payload),
-                FORMAT_VERSION_ATTR,
-                (ID_KEY, hedwig_id),
-                (MESSAGE_TIMESTAMP_KEY, &message_timestamp),
-                (PUBLISHER_KEY, publisher),
-                (SCHEMA_KEY, schema),
-                ENCODING_ATTR,
-            ],
-            &options,
-        )
-        .await;
-    println!("xadd done");
-    res
+    con.xadd_options(
+        &key.0,
+        // Use * as the id for the current timestamp
+        "*",
+        &[
+            (PAYLOAD_KEY, payload),
+            FORMAT_VERSION_ATTR,
+            (ID_KEY, hedwig_id),
+            (MESSAGE_TIMESTAMP_KEY, &message_timestamp),
+            (PUBLISHER_KEY, publisher),
+            (SCHEMA_KEY, schema),
+            ENCODING_ATTR,
+        ],
+        &options,
+    )
+    .await
 }
 
+#[derive(Clone)]
 pub struct Publisher {
     sender: tokio::sync::mpsc::Sender<EncodedMessage>,
 }
