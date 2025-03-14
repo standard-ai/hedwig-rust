@@ -3,12 +3,12 @@ use hedwig::{
     redis::{ClientBuilder, ClientBuilderConfig, Group, GroupName, RedisMessage, StreamName},
     validators, AcknowledgeToken, Consumer, DecodableMessage, EncodableMessage, Headers, Publisher,
 };
-use tracing::info;
 use std::{
     error::Error as StdError,
     time::{Duration, SystemTime},
 };
 use structopt::StructOpt;
+use tracing::info;
 
 const TEST_MESSAGE: &str = "test_message";
 const SCHEMA: &str = "test_message/1.0";
@@ -16,8 +16,8 @@ const SCHEMA: &str = "test_message/1.0";
 /// The input data, representing some user being created with the given name
 #[derive(PartialEq, Eq, prost::Message)]
 struct TestMessage {
-    #[prost(string, tag = "1")]
-    name: String,
+    #[prost(uint64)]
+    id: u64,
 }
 
 impl EncodableMessage for TestMessage {
@@ -55,7 +55,7 @@ struct Args {
     mode: usize,
 
     #[structopt(long, default_value = "1")]
-    count: usize,
+    count: u64,
 
     #[structopt(long, default_value = "0")]
     delay_ms: usize,
@@ -90,20 +90,15 @@ async fn main() -> Result<(), Box<dyn StdError>> {
                 validator,
             );
 
-            for i in 1..=args.count {
-                let message = TestMessage {
-                    name: format!("Example Name #{}", i),
-                };
+            for id in 1..=args.count {
+                let message = TestMessage { id };
 
-                info!("Sending message {:?}", message.name);
+                info!("Sending message {:?}", message.id);
 
                 input_sink.feed(message).await.unwrap();
+                input_sink.flush().await.unwrap();
                 tokio::time::sleep(delay).await;
             }
-
-            input_sink.flush().await.unwrap();
-            info!("wait...");
-            tokio::time::sleep(Duration::from_secs(1)).await;
 
             info!("Finished. Sent {} messages", args.count);
         }
@@ -117,12 +112,12 @@ async fn main() -> Result<(), Box<dyn StdError>> {
 
             let mut count = 0;
 
-            loop {
+            for _ in 1..=args.count {
                 match read_stream.next().await {
                     Some(Ok(msg)) => {
                         let RedisMessage { ack_token, message } = msg;
                         let _ = ack_token.ack().await;
-                        info!("Received: {:?}", &message.name);
+                        info!("Received: {:?}", &message.id);
 
                         count += 1;
                     }
