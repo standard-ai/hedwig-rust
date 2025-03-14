@@ -1,8 +1,6 @@
-use futures_util::{SinkExt, StreamExt, TryFutureExt};
+use futures_util::{SinkExt, StreamExt};
 use hedwig::{
-    redis::{
-        ClientBuilder, ClientBuilderConfig, Group, GroupName, RedisMessage, StreamName, TopicConfig,
-    },
+    redis::{ClientBuilder, ClientBuilderConfig, Group, GroupName, RedisMessage, StreamName},
     validators, AcknowledgeToken, Consumer, DecodableMessage, EncodableMessage, Headers, Publisher,
 };
 use std::{
@@ -49,14 +47,17 @@ impl DecodableMessage for TestMessage {
 
 #[derive(Debug, StructOpt)]
 struct Args {
-    #[structopt(long)]
+    #[structopt(long, default_value = "redis://localhost:6379")]
     endpoint: String,
 
-    #[structopt(long)]
+    #[structopt(long, default_value = "1")]
     mode: usize,
 
-    #[structopt(long)]
+    #[structopt(long, default_value = "1")]
     count: usize,
+
+    #[structopt(long, default_value = "0")]
+    delay_ms: usize,
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -81,27 +82,25 @@ async fn main() -> Result<(), Box<dyn StdError>> {
 
     match args.mode {
         1 => {
+            let delay = Duration::from_millis(args.delay_ms.try_into().unwrap());
             let validator = validators::ProstValidator::new();
             let mut input_sink = Publisher::<TestMessage>::publish_sink(
                 publisher_client.publisher().await,
                 validator,
             );
 
-            for i in 0..=args.count {
+            for i in 1..=args.count {
                 let message = TestMessage {
                     name: format!("Example Name #{}", i),
                 };
 
                 println!("Sending message {:?}", message.name);
 
-                // TODO
-                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                tokio::time::sleep(delay).await;
 
-                // TODO googlepubsub error can be used with ? but this is not. Why?
                 input_sink.feed(message).await.unwrap();
             }
 
-            // TODO googlepubsub error can be used with ? but this is not. Why?
             input_sink.flush().await.unwrap();
 
             println!("Finished. Sent {} messages", args.count);
@@ -130,7 +129,9 @@ async fn main() -> Result<(), Box<dyn StdError>> {
                         break;
                     }
                     None => {
-                        std::thread::sleep(Duration::from_secs(1));
+                        panic!();
+                        // println!("Received {} messages", count);
+                        // tokio::time::sleep(Duration::from_secs(1)).await;
                     }
                 }
             }
