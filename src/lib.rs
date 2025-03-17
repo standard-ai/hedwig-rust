@@ -81,6 +81,7 @@ mod backends;
 mod consumer;
 mod publisher;
 mod tests;
+mod dbg_count;
 pub mod validators;
 
 #[allow(unused_imports)]
