@@ -117,7 +117,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
                     Some(Ok(msg)) => {
                         let RedisMessage { ack_token, message } = msg;
                         let _ = ack_token.ack().await;
-                        info!("Received: {:?}", &message.id);
+                        info!("Received: {:?} (count={})", &message.id, count);
 
                         count += 1;
                     }

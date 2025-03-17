@@ -302,26 +302,23 @@ where
     ) -> Poll<Result<(), PublishError<M, S::Error>>> {
         let this = self.project();
 
-        let Some(message) = this.buffer.take() else {
-            return Poll::Ready(Ok(()));
-        };
-
         if this.sender.capacity() == 0 {
             cx.waker().wake_by_ref();
             return Poll::Pending;
         }
 
-        let Ok(encoded_message) = encode_message(this.validator, message) else {
-            // Ignore errors
+        let Some(message) = this.buffer.take() else {
+            // Nothing pending
             return Poll::Ready(Ok(()));
         };
 
-        match this.sender.try_send(encoded_message) {
-            Ok(_) => Poll::Ready(Ok(())),
-            Err(_) => {
-                cx.waker().wake_by_ref();
-                Poll::Pending
-            }
-        }
+        let Ok(encoded_message) = encode_message(this.validator, message) else {
+            // TODO Handle errors
+            return Poll::Ready(Ok(()));
+        };
+
+        // Cannot fail here, we checked capacity before
+        this.sender.try_send(encoded_message).unwrap();
+        Poll::Ready(Ok(()))
     }
 }
