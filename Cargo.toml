@@ -18,7 +18,7 @@ description = "A simple message bus for Rust"
 license = "Apache-2.0"
 keywords = ["pubsub", "messagebus", "microservices", "redis"]
 categories = ["asynchronous", "web-programming"]
-rust-version = "1.64"
+rust-version = "1.81"
 
 [badges]
 maintenance = { status = "actively-developed" }
