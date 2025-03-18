@@ -21,12 +21,14 @@ use crate::{
 
 use super::{EncodedMessage, StreamName};
 
+/// Redis consumer client
 #[derive(Debug, Clone)]
 pub struct ConsumerClient {
     client: redis::Client,
 }
 
 impl ConsumerClient {
+    /// Create a consumer client from a redis Client
     pub fn from_client(client: redis::Client) -> Self {
         ConsumerClient { client }
     }
@@ -54,6 +56,7 @@ async fn xread(
 }
 
 impl ConsumerClient {
+    /// Create a consumer group
     pub async fn create_consumer_group(&mut self, config: &Group) -> RedisResult<()> {
         let mut con = self.client.get_multiplexed_async_connection().await?;
         let stream_name = &config.stream_name;
@@ -61,6 +64,7 @@ impl ConsumerClient {
         xgroup_create_mkstream(&mut con, stream_name, group_name).await
     }
 
+    /// Create a stream, given the subscription
     pub async fn stream_subscription(&mut self, subscription: Group) -> RedisStream {
         let stream_name = subscription.stream_name;
         let group_name = subscription.group_name;
@@ -185,6 +189,7 @@ pub enum RedisStreamError {
         source: BoxError,
     },
 
+    /// The message is malformed
     #[error("malformed message")]
     MalformedMessage,
 }
@@ -233,9 +238,11 @@ fn redis_to_hedwig(encoded_message: EncodedMessage) -> Result<ValidatedMessage, 
     Ok(ValidatedMessage::new(id, timestamp, schema, headers, data))
 }
 
+/// An acknowledgement token for a message
 #[derive(Debug)]
 pub struct AcknowledgeToken;
 
+/// Errors encountered while acknowledging a message
 #[derive(Debug, Clone, Eq, PartialEq, thiserror::Error)]
 #[error("failed to ack/nack/modify")]
 pub struct AcknowledgeError;
@@ -277,15 +284,18 @@ impl ConsumerName {
     }
 }
 
+/// A consumer group name
 #[derive(Debug, Clone)]
 pub struct GroupName(String);
 
 impl GroupName {
+    /// Create a new group name
     pub fn new(name: impl Into<String>) -> Self {
         Self(name.into())
     }
 }
 
+/// A consumer group
 #[derive(Debug, Clone)]
 pub struct Group {
     group_name: GroupName,
@@ -293,6 +303,7 @@ pub struct Group {
 }
 
 impl Group {
+    /// Create a new consumer group
     pub fn new(name: GroupName, stream_name: StreamName) -> Self {
         Self {
             group_name: name,

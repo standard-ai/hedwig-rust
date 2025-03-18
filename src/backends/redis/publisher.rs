@@ -21,12 +21,14 @@ use super::{
 };
 use super::{StreamName, ENCODING_ATTR};
 
+/// Publisher client
 #[derive(Debug, Clone)]
 pub struct PublisherClient {
     client: redis::Client,
 }
 
 impl PublisherClient {
+    /// Create a new publisher client from a Redis client
     pub fn from_client(client: redis::Client) -> Self {
         PublisherClient { client }
     }
@@ -92,11 +94,14 @@ where
     }
 }
 
+/// Topic configuration
 pub struct TopicConfig {
+    /// The topic name
     pub name: StreamName,
 }
 
 impl PublisherClient {
+    /// Create a new publisher
     pub async fn publisher(&self) -> Publisher {
         let client = self.client.clone();
 
@@ -180,6 +185,7 @@ async fn push(
     .await
 }
 
+/// Redis publisher
 #[derive(Clone)]
 pub struct Publisher {
     sender: tokio::sync::mpsc::Sender<EncodedMessage>,
@@ -208,6 +214,7 @@ where
     }
 }
 
+/// Publish sink
 #[pin_project]
 pub struct PublishSink<M: EncodableMessage, S: Sink<M>> {
     validator: M::Validator,

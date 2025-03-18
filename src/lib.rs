@@ -74,6 +74,7 @@
 //! # }
 //! ```
 #![cfg_attr(docsrs, feature(doc_cfg))]
+#![deny(missing_docs)]
 
 pub use hedwig_core::{message, Headers, Topic, ValidatedMessage};
 
