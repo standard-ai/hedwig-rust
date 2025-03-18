@@ -58,7 +58,7 @@ impl From<hedwig_core::Topic> for StreamName {
     }
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone)]
 pub struct ClientBuilderConfig {
     pub endpoint: String,
 }

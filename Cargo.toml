@@ -8,7 +8,7 @@ authors = [
     "Aniruddha Maru <aniruddhamaru@gmail.com>",
     "Simonas Kazlauskas <hedwig@kazlauskas.me>",
     "Renar Narubin <r.narubin@gmail.com>",
-    "Alessandro Pezzato <alessandro.pezzato@standard.ai>",
+    "Alessandro Pezzato <alepez@users.noreply.github.com>",
 ]
 edition = "2021"
 repository = "https://github.com/standard-ai/hedwig-rust.git"
@@ -16,15 +16,14 @@ homepage = "https://github.com/standard-ai/hedwig-rust"
 readme = "README.md"
 description = "A simple message bus for Rust"
 license = "Apache-2.0"
-keywords = ["pubsub", "messagebus", "microservices"]
+keywords = ["pubsub", "messagebus", "microservices", "redis"]
 categories = ["asynchronous", "web-programming"]
 
 [badges]
 maintenance = { status = "actively-developed" }
 
 [features]
-# TODO default enabled during dev. Should be: default = []
-default = ["redis", "mock", "google", "protobuf", "json-schema"]
+default = ["redis", "protobuf"]
 
 # Backends
 google = ["dep:ya-gcp", "dep:tracing", "dep:parking_lot"]
@@ -72,8 +71,6 @@ valico = { version = "^3.2", optional = true, default-features = false }
 ya-gcp = { version = "0.11", features = ["pubsub"], optional = true }
 redis = { version = "0.29.0", features = ["streams", "tokio-comp", "connection-manager"], optional = true }
 base64 = { version = "0.22.1", optional = true }
-
-# TODO SW-19526 Needed for dirty spawn_blocking implementation
 tokio = { version = "1", features = ["macros", "rt"], optional = true}
 
 [dev-dependencies]
