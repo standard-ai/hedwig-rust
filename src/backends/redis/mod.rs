@@ -76,6 +76,7 @@ impl ClientBuilder {
 impl ClientBuilder {
     pub async fn build_consumer(
         &self,
+        // TODO
         _queue: impl Into<String>,
     ) -> Result<ConsumerClient, RedisError> {
         let client = redis::Client::open(self.config.endpoint.as_str())?;
@@ -84,7 +85,7 @@ impl ClientBuilder {
 
     pub async fn build_publisher(
         &self,
-        // TODO SW-19526 Use publisher_id for full subscription name
+        // TODO
         _publisher_id: impl Into<String>,
     ) -> Result<PublisherClient, RedisError> {
         let client = redis::Client::open(self.config.endpoint.as_str())?;

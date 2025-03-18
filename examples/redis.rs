@@ -200,7 +200,6 @@ async fn main() -> Result<(), Box<dyn StdError>> {
             .await;
     }
 
-    // TODO SW-19526 googlepubsub example differs here
     if (output_sink.flush().await).is_err() {
         panic!()
     }

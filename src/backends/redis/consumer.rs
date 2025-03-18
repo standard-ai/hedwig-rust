@@ -70,7 +70,7 @@ impl ConsumerClient {
 
         let client = self.client.clone();
 
-        // TODO: SW-19526 Implement reliability (use ack token)
+        // TODO Implement reliability (use ack token)
         // The NOACK subcommand can be used to avoid adding the message to the PEL in cases where reliability is not
         // a requirement and the occasional message loss is acceptable. This is equivalent to acknowledging the
         // message when it is read.
