@@ -240,7 +240,7 @@ match_fields! {
     }
 }
 
-impl<'s> SubscriptionConfig<'s> {
+impl SubscriptionConfig<'_> {
     fn into_subscription<C>(self, client: &ConsumerClient<C>) -> pubsub::api::Subscription {
         let mut sub = pubsub::api::Subscription::default();
 
@@ -264,7 +264,7 @@ impl<'s> SubscriptionConfig<'s> {
 }
 
 // TODO replace with a builder?
-impl<'s> Default for SubscriptionConfig<'s> {
+impl Default for SubscriptionConfig<'_> {
     fn default() -> Self {
         Self {
             name: SubscriptionName::new(String::new()),

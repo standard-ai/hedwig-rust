@@ -121,7 +121,7 @@ async fn publish_messages() -> Result<(), Box<dyn std::error::Error>> {
 
     // prepare a consumer to read any sent messages
     let mut consumer = publisher
-        .new_consumer((&message_one).topic(), "subscription1")
+        .new_consumer(message_one.topic(), "subscription1")
         .consume::<JsonUserCreatedMessage<String>>(());
 
     // publishing the message with a u64 id should error on trying to send

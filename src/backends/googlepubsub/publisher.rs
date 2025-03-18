@@ -327,7 +327,7 @@ match_fields! {
     }
 }
 
-impl<'s> TopicConfig<'s> {
+impl TopicConfig<'_> {
     fn into_topic<C>(self, client: &PublisherClient<C>) -> pubsub::api::Topic {
         let mut t = pubsub::api::Topic::default();
         t.name = self.name.into_project_topic_name(client.project()).into();
@@ -339,7 +339,7 @@ impl<'s> TopicConfig<'s> {
     }
 }
 
-impl<'s> Default for TopicConfig<'s> {
+impl Default for TopicConfig<'_> {
     fn default() -> Self {
         Self {
             name: TopicName::new(String::new()),
