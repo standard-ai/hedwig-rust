@@ -83,9 +83,7 @@ mod publisher;
 mod tests;
 pub mod validators;
 
-#[allow(unused_imports)]
 pub use backends::*;
-
 pub use consumer::*;
 pub use publisher::*;
 
