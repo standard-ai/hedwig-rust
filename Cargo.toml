@@ -23,7 +23,7 @@ categories = ["asynchronous", "web-programming"]
 maintenance = { status = "actively-developed" }
 
 [features]
-default = ["redis", "protobuf"]
+default = []
 
 # Backends
 google = ["dep:ya-gcp", "dep:tracing", "dep:parking_lot"]
