@@ -11,7 +11,7 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
-use tracing::{info, warn};
+use tracing::warn;
 
 use crate::{redis::EncodedMessage, EncodableMessage};
 
@@ -97,16 +97,6 @@ pub struct TopicConfig {
 }
 
 impl PublisherClient {
-    pub async fn create_topic(&mut self, _topic: TopicConfig) -> Result<(), RedisError> {
-        // TODO SW-19526 Implement create_topic
-        Ok(())
-    }
-
-    pub async fn delete_topic(&mut self, _topic: StreamName) -> Result<(), RedisError> {
-        // TODO SW-19526 Implement delete_topic
-        Ok(())
-    }
-
     pub async fn publisher(&self) -> Publisher {
         let client = self.client.clone();
 
@@ -124,8 +114,6 @@ impl PublisherClient {
                 )
                 .await
                 {
-                    info!("Redis connected");
-
                     while let Some(EncodedMessage {
                         id,
                         topic,
@@ -159,25 +147,24 @@ async fn push(
     schema: &str,
     hedwig_id: &str,
 ) -> RedisResult<()> {
-    // TODO Dirty hack to avoid the queue increasing indefinitely
+    // TODO trimming mode should not be needed if everything is set up correctly
+    // Workaround to prevent increasing indefinitely the queue
     let options = redis::streams::StreamAddOptions::default().trim(StreamTrimStrategy::maxlen(
         StreamTrimmingMode::Approx,
         1_000,
     ));
 
-    // TODO Original message timestamp instead of current time
     let message_timestamp: String = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis()
         .to_string();
 
-    // TODO
+    // TODO get publisher name from configuration
     let publisher = "unknown";
 
     con.xadd_options(
         &key.0,
-        // Use * as the id for the current timestamp
         "*",
         &[
             (PAYLOAD_KEY, payload),
@@ -206,7 +193,7 @@ where
     type PublishError = PublishError<M, S::Error>;
     type PublishSink = PublishSink<M, S>;
 
-    // TODO SW-19526 For reliability, implement response sink, so users can ack messages
+    // TODO For reliability, implement response sink, so users can ack messages
     fn publish_sink_with_responses(
         self,
         validator: M::Validator,

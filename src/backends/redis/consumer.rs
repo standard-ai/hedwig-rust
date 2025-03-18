@@ -12,7 +12,7 @@ use std::{
     task::{Context, Poll},
     time::SystemTime,
 };
-use tracing::{info, trace, warn};
+use tracing::warn;
 
 use crate::{
     redis::{ID_KEY, PAYLOAD_KEY, SCHEMA_KEY},
@@ -40,11 +40,6 @@ async fn xgroup_create_mkstream(
     // The special ID $ is the ID of the last entry in the stream
     let id = "$";
 
-    info!(
-        "xgroup_create_mkstream {} {}",
-        &stream_name.0, &group_name.0
-    );
-
     con.xgroup_create_mkstream(&stream_name.0, &group_name.0, id)
         .await
 }
@@ -54,23 +49,16 @@ async fn xread(
     stream_name: &StreamName,
     stream_read_options: &StreamReadOptions,
 ) -> RedisResult<StreamReadReply> {
-    trace!("xreadgroup {}", &stream_name.0,);
-
     con.xread_options(&[&stream_name.0], &[">"], stream_read_options)
         .await
 }
 
 impl ConsumerClient {
-    pub async fn create_subscription(&mut self, config: &Group) -> RedisResult<()> {
+    pub async fn create_consumer_group(&mut self, config: &Group) -> RedisResult<()> {
         let mut con = self.client.get_multiplexed_async_connection().await?;
         let stream_name = &config.stream_name;
         let group_name = &config.group_name;
         xgroup_create_mkstream(&mut con, stream_name, group_name).await
-    }
-
-    pub async fn delete_subscription(&mut self, _subscription: Group) -> RedisResult<()> {
-        // TODO
-        Ok(())
     }
 
     pub async fn stream_subscription(&mut self, subscription: Group) -> RedisStream {
@@ -107,8 +95,6 @@ impl ConsumerClient {
                 )
                 .await
                 {
-                    info!("Redis connected");
-
                     loop {
                         // Read from the stream
 

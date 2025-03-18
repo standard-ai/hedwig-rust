@@ -1,8 +1,6 @@
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
 use hedwig::{
-    redis::{
-        ClientBuilder, ClientBuilderConfig, Group, GroupName, RedisMessage, StreamName, TopicConfig,
-    },
+    redis::{ClientBuilder, ClientBuilderConfig, Group, GroupName, RedisMessage, StreamName},
     validators, Consumer, DecodableMessage, EncodableMessage, Headers, Publisher,
 };
 use std::{error::Error as StdError, time::SystemTime};
@@ -85,7 +83,7 @@ impl EncodableMessage for TransformedMessage {
 
 #[derive(Debug, StructOpt)]
 struct Args {
-    #[structopt(long)]
+    #[structopt(long, default_value = "redis://localhost:6379")]
     endpoint: String,
 }
 
@@ -106,24 +104,13 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     let input_topic_name = StreamName::from_topic(USER_CREATED_TOPIC);
     let input_consumer_group = Group::new(GroupName::new(APP_NAME), input_topic_name.clone());
 
-    let output_topic_name = StreamName::from_topic(USER_UPDATED_TOPIC);
     const APP_NAME: &str = "user-metadata-updater";
 
-    let mut publisher_client = builder.build_publisher(APP_NAME).await?;
+    let publisher_client = builder.build_publisher(APP_NAME).await?;
     let mut consumer_client = builder.build_consumer(APP_NAME).await?;
 
-    for topic_name in [&input_topic_name, &output_topic_name] {
-        println!("Creating topic {:?}", topic_name);
-
-        publisher_client
-            .create_topic(TopicConfig {
-                name: topic_name.clone(),
-            })
-            .await?;
-    }
-
     let _ = consumer_client
-        .create_subscription(&input_consumer_group)
+        .create_consumer_group(&input_consumer_group)
         .await
         .inspect_err(|err| {
             warn!(err = err.to_string(), "cannot create consumer group");
@@ -148,14 +135,9 @@ async fn main() -> Result<(), Box<dyn StdError>> {
 
             println!("Sending message {:?}", message.name);
 
-            // TODO
-            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-
-            // TODO googlepubsub error can be used with ? but this is not. Why?
             input_sink.feed(message).await.unwrap();
         }
 
-        // TODO googlepubsub error can be used with ? but this is not. Why?
         input_sink.flush().await.unwrap();
     }
 
@@ -193,7 +175,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
             ack_token,
             message: UserUpdatedMessage {
                 name: message.name,
-                id: random_id(),
+                id: i,
                 metadata: "some metadata".into(),
             },
         });
@@ -225,24 +207,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
 
     println!("All messages matched and published successfully!");
 
-    println!("Deleting subscription {:?}", &input_consumer_group);
-
-    consumer_client
-        .delete_subscription(input_consumer_group)
-        .await?;
-
-    for topic_name in [input_topic_name, output_topic_name] {
-        println!("Deleting topic {:?}", &topic_name);
-
-        publisher_client.delete_topic(topic_name).await?;
-    }
-
     println!("Done");
 
     Ok(())
-}
-
-fn random_id() -> i64 {
-    4 // chosen by fair dice roll.
-      // guaranteed to be random.
 }
