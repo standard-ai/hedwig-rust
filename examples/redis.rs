@@ -1,17 +1,11 @@
-//! An example of ingesting messages from a PubSub subscription, applying a
-//! transformation, then submitting those transformations to another PubSub topic.
-
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
 use hedwig::{
-    googlepubsub::{
-        AuthFlow, ClientBuilder, ClientBuilderConfig, PubSubConfig, PubSubMessage, PublishError,
-        ServiceAccountAuth, StreamSubscriptionConfig, SubscriptionConfig, SubscriptionName,
-        TopicConfig, TopicName,
-    },
+    redis::{ClientBuilder, ClientBuilderConfig, Group, GroupName, RedisMessage, StreamName},
     validators, Consumer, DecodableMessage, EncodableMessage, Headers, Publisher,
 };
 use std::{error::Error as StdError, time::SystemTime};
 use structopt::StructOpt;
+use tracing::warn;
 
 const USER_CREATED_TOPIC: &str = "user.created";
 const USER_UPDATED_TOPIC: &str = "user.updated";
@@ -66,7 +60,7 @@ struct UserUpdatedMessage {
 /// The output message will carry an ack token from the input message, to ack when the output is
 /// successfully published, or nack on failure
 #[derive(Debug)]
-struct TransformedMessage(PubSubMessage<UserUpdatedMessage>);
+struct TransformedMessage(RedisMessage<UserUpdatedMessage>);
 
 impl EncodableMessage for TransformedMessage {
     type Error = validators::ProstValidatorError;
@@ -89,30 +83,8 @@ impl EncodableMessage for TransformedMessage {
 
 #[derive(Debug, StructOpt)]
 struct Args {
-    /// The name of the pubsub project
-    #[structopt(long)]
-    project_name: String,
-
-    /// Load credentials from an authorized user secret, such as the one created when running `gcloud auth
-    /// application-default login`
-    #[structopt(long)]
-    user_account_credentials: Option<std::path::PathBuf>,
-
-    /// Assume topics already exist and do not create them
-    #[structopt(long)]
-    assume_topics_exist: bool,
-
-    /// Do not clean up created topics on exit
-    #[structopt(long)]
-    keep_topics: bool,
-
-    /// Assume topics already exist and do not create them
-    #[structopt(long)]
-    assume_subscriptions_exist: bool,
-
-    /// Do not clean up created topics on exit
-    #[structopt(long)]
-    keep_subscriptions: bool,
+    #[structopt(long, default_value = "redis://localhost:6379")]
+    endpoint: String,
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -123,53 +95,26 @@ async fn main() -> Result<(), Box<dyn StdError>> {
 
     println!("Building PubSub clients");
 
-    let auth_flow = if let Some(user) = args.user_account_credentials {
-        AuthFlow::UserAccount(user)
-    } else {
-        AuthFlow::ServiceAccount(ServiceAccountAuth::EnvVar)
+    let config = ClientBuilderConfig {
+        endpoint: args.endpoint,
     };
 
-    let builder = ClientBuilder::new(
-        ClientBuilderConfig::new().auth_flow(auth_flow),
-        PubSubConfig::default(),
-    )
-    .await?;
+    let builder = ClientBuilder::new(config).await?;
 
-    let input_topic_name = TopicName::new(USER_CREATED_TOPIC);
-    let subscription_name = SubscriptionName::new("user-metadata-updaters");
+    let input_topic_name = StreamName::from_topic(USER_CREATED_TOPIC);
+    let input_consumer_group = Group::new(GroupName::new(APP_NAME), input_topic_name.clone());
 
-    let output_topic_name = TopicName::new(USER_UPDATED_TOPIC);
     const APP_NAME: &str = "user-metadata-updater";
 
-    let mut publisher_client = builder
-        .build_publisher(&args.project_name, APP_NAME)
-        .await?;
-    let mut consumer_client = builder.build_consumer(&args.project_name, APP_NAME).await?;
+    let publisher_client = builder.build_publisher(APP_NAME).await?;
+    let mut consumer_client = builder.build_consumer(APP_NAME).await?;
 
-    if !args.assume_topics_exist {
-        for topic_name in [&input_topic_name, &output_topic_name] {
-            println!("Creating topic {:?}", topic_name);
-
-            let _ = publisher_client
-                .create_topic(TopicConfig {
-                    name: topic_name.clone(),
-                    ..TopicConfig::default()
-                })
-                .await;
-        }
-    }
-
-    println!("Creating subscription {:?}", &subscription_name);
-
-    if !args.assume_subscriptions_exist {
-        let _ = consumer_client
-            .create_subscription(SubscriptionConfig {
-                topic: input_topic_name.clone(),
-                name: subscription_name.clone(),
-                ..SubscriptionConfig::default()
-            })
-            .await;
-    }
+    let _ = consumer_client
+        .create_consumer_group(&input_consumer_group)
+        .await
+        .inspect_err(|err| {
+            warn!(err = err.to_string(), "cannot create consumer group");
+        });
 
     println!(
         "Synthesizing input messages for topic {:?}",
@@ -178,32 +123,35 @@ async fn main() -> Result<(), Box<dyn StdError>> {
 
     {
         let validator = validators::ProstValidator::new();
-        let mut input_sink =
-            Publisher::<UserCreatedMessage>::publish_sink(publisher_client.publisher(), validator);
+        let mut input_sink = Publisher::<UserCreatedMessage>::publish_sink(
+            publisher_client.publisher().await,
+            validator,
+        );
 
         for i in 1..=10 {
             let message = UserCreatedMessage {
                 name: format!("Example Name #{}", i),
             };
 
-            input_sink.feed(message).await?;
+            println!("Sending message {:?}", message.name);
+
+            input_sink.feed(message).await.unwrap();
         }
-        input_sink.flush().await?;
+
+        input_sink.flush().await.unwrap();
     }
 
     println!("Ingesting input messages, applying transformations, and publishing to destination");
 
     let mut read_stream = consumer_client
-        .stream_subscription(
-            subscription_name.clone(),
-            StreamSubscriptionConfig::default(),
-        )
+        .stream_subscription(input_consumer_group.clone())
+        .await
         .consume::<UserCreatedMessage>(hedwig::validators::ProstDecoder::new(
             hedwig::validators::prost::ExactSchemaMatcher::new("user.created/1.0"),
         ));
 
     let mut output_sink = Publisher::<TransformedMessage, _>::publish_sink_with_responses(
-        publisher_client.publisher(),
+        publisher_client.publisher().await,
         validators::ProstValidator::new(),
         futures_util::sink::unfold((), |_, message: TransformedMessage| async move {
             // if the output is successfully sent, ack the input to mark it as processed
@@ -212,7 +160,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     );
 
     for i in 1..=10 {
-        let PubSubMessage { ack_token, message } = read_stream
+        let RedisMessage { ack_token, message } = read_stream
             .next()
             .await
             .expect("stream should have 10 elements")?;
@@ -223,55 +171,42 @@ async fn main() -> Result<(), Box<dyn StdError>> {
             println!("Received: {:?}", &message.name);
         }
 
-        let transformed = TransformedMessage(PubSubMessage {
+        let transformed = TransformedMessage(RedisMessage {
             ack_token,
             message: UserUpdatedMessage {
                 name: message.name,
-                id: random_id(),
+                id: i,
                 metadata: "some metadata".into(),
             },
         });
 
-        output_sink
+        let _ = output_sink
             .feed(transformed)
+            .inspect_err(|publish_error| {
+                println!("Error: {:?}", publish_error);
+            })
             .or_else(|publish_error| async move {
                 // if publishing fails, nack the failed messages to allow later retries
                 Err(match publish_error {
-                    PublishError::Publish { cause, messages } => {
+                    hedwig::redis::PublishError::Publish { cause: _, messages } => {
                         for failed_transform in messages {
                             failed_transform.0.nack().await?;
                         }
-                        Box::<dyn StdError>::from(cause)
+                        Box::<dyn StdError>::from("Cannot publish message")
                     }
                     err => Box::<dyn StdError>::from(err),
                 })
             })
-            .await?
+            .await;
     }
-    output_sink.flush().await?;
+
+    if (output_sink.flush().await).is_err() {
+        panic!()
+    }
 
     println!("All messages matched and published successfully!");
-
-    println!("Deleting subscription {:?}", &subscription_name);
-
-    if !args.keep_subscriptions {
-        let _ = consumer_client.delete_subscription(subscription_name).await;
-    }
-
-    if !args.keep_topics {
-        for topic_name in [input_topic_name, output_topic_name] {
-            println!("Deleting topic {:?}", &topic_name);
-
-            let _ = publisher_client.delete_topic(topic_name).await;
-        }
-    }
 
     println!("Done");
 
     Ok(())
-}
-
-fn random_id() -> i64 {
-    4 // chosen by fair dice roll.
-      // guaranteed to be random.
 }

@@ -73,7 +73,7 @@ impl MockPublisher {
         subscription: impl Into<MockSubscription>,
     ) -> MockConsumer {
         let mut topics = self.topics.lock();
-        let subscriptions = topics.entry(topic.into()).or_insert_with(BTreeMap::new);
+        let subscriptions = topics.entry(topic.into()).or_default();
 
         let channel = subscriptions
             .entry(subscription.into())
@@ -164,7 +164,7 @@ where
             // send the message to every subscription listening on the given topic
 
             // find the subscriptions for this topic
-            let subscriptions = topics.entry(topic).or_insert_with(Subscriptions::new);
+            let subscriptions = topics.entry(topic).or_default();
 
             // Send to every subscription that still has consumers. If a subscription's consumers are
             // all dropped, the channel will have been closed and should be removed from the list

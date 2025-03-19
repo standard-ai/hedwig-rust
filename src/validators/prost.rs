@@ -36,7 +36,6 @@
 //!
 //! # Ok::<_, Box<dyn std::error::Error>>(())
 //! ```
-#![cfg(feature = "prost")]
 
 use std::time::SystemTime;
 use uuid::Uuid;

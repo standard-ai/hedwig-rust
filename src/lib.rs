@@ -74,6 +74,7 @@
 //! # }
 //! ```
 #![cfg_attr(docsrs, feature(doc_cfg))]
+#![deny(missing_docs)]
 
 pub use hedwig_core::{message, Headers, Topic, ValidatedMessage};
 
@@ -83,7 +84,9 @@ mod publisher;
 mod tests;
 pub mod validators;
 
+#[allow(unused_imports)]
 pub use backends::*;
+
 pub use consumer::*;
 pub use publisher::*;
 

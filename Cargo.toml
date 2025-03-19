@@ -3,11 +3,12 @@ members = ["hedwig_core"]
 
 [package]
 name = "hedwig"
-version = "7.1.0"
+version = "7.2.0"
 authors = [
     "Aniruddha Maru <aniruddhamaru@gmail.com>",
     "Simonas Kazlauskas <hedwig@kazlauskas.me>",
     "Renar Narubin <r.narubin@gmail.com>",
+    "Alessandro Pezzato <alepez@users.noreply.github.com>",
 ]
 edition = "2021"
 repository = "https://github.com/standard-ai/hedwig-rust.git"
@@ -15,8 +16,9 @@ homepage = "https://github.com/standard-ai/hedwig-rust"
 readme = "README.md"
 description = "A simple message bus for Rust"
 license = "Apache-2.0"
-keywords = ["pubsub", "messagebus", "microservices"]
+keywords = ["pubsub", "messagebus", "microservices", "redis"]
 categories = ["asynchronous", "web-programming"]
+rust-version = "1.81"
 
 [badges]
 maintenance = { status = "actively-developed" }
@@ -25,8 +27,9 @@ maintenance = { status = "actively-developed" }
 default = []
 
 # Backends
-google = ["ya-gcp", "tracing", "parking_lot"]
-mock = ["async-channel", "parking_lot"]
+google = ["dep:ya-gcp", "dep:tracing", "dep:parking_lot"]
+redis = ["dep:tracing", "dep:async-channel", "dep:parking_lot", "dep:redis", "dep:tokio", "dep:base64"]
+mock = ["dep:async-channel", "dep:parking_lot"]
 
 # Validators
 json-schema = ["valico", "serde_json", "serde"]
@@ -36,11 +39,18 @@ protobuf = ["prost"]
 name = "googlepubsub"
 required-features = ["google", "protobuf"]
 
+[[example]]
+name = "redis"
+required-features = ["redis", "protobuf"]
+
 [dependencies]
 async-trait = { version = "0.1" }
 bytes = "1"
 either = { version = "1", features = ["use_std"], default-features = false }
-futures-util = { version = "0.3.17", features = ["std", "sink"], default-features = false }
+futures-util = { version = "0.3.17", features = [
+    "std",
+    "sink",
+], default-features = false }
 hedwig_core = { version = "0.1", path = "./hedwig_core" }
 pin-project = "1"
 smallstr = { version = "0.3.0", features = ["union"] }
@@ -50,12 +60,19 @@ uuid = { version = "1.6", features = ["v4"], default-features = false }
 
 async-channel = { version = "1.6", optional = true }
 serde = { version = "^1.0", optional = true, default-features = false }
-serde_json = { version = "^1", features = ["std"], optional = true, default-features = false }
+serde_json = { version = "^1", features = [
+    "std",
+], optional = true, default-features = false }
 parking_lot = { version = "0.11", optional = true }
-prost = { version = "0.12", optional = true, features = ["std"], default-features = false }
+prost = { version = "0.12", optional = true, features = [
+    "std",
+], default-features = false }
 tracing = { version = "0.1.37", optional = true }
 valico = { version = "^3.2", optional = true, default-features = false }
 ya-gcp = { version = "0.11", features = ["pubsub"], optional = true }
+redis = { version = "0.29.0", features = ["streams", "tokio-comp", "connection-manager"], optional = true }
+base64 = { version = "0.22.1", optional = true }
+tokio = { version = "1", features = ["macros", "rt"], optional = true}
 
 [dev-dependencies]
 async-channel = { version = "1.6" }
@@ -67,6 +84,7 @@ tonic = "0.10"
 serde = { version = "1", features = ["derive"] }
 ya-gcp = { version = "0.11", features = ["pubsub", "emulators"] }
 structopt = "0.3"
+tracing-subscriber = "0.3.19"
 
 [package.metadata.docs.rs]
 all-features = true
