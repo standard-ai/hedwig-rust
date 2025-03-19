@@ -100,11 +100,10 @@ impl ClientBuilder {
     /// Build a new publisher client
     pub async fn build_publisher(
         &self,
-        // TODO
-        _publisher_id: impl Into<String>,
+        publisher_id: impl Into<String>,
     ) -> Result<PublisherClient, RedisError> {
         let client = redis::Client::open(self.config.endpoint.as_str())?;
-        Ok(PublisherClient::from_client(client))
+        Ok(PublisherClient::from_client(client, publisher_id))
     }
 }
 

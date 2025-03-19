@@ -25,12 +25,17 @@ use super::{StreamName, ENCODING_ATTR};
 #[derive(Debug, Clone)]
 pub struct PublisherClient {
     client: redis::Client,
+    publisher_id: PublisherId,
 }
 
 impl PublisherClient {
     /// Create a new publisher client from a Redis client
-    pub fn from_client(client: redis::Client) -> Self {
-        PublisherClient { client }
+    pub fn from_client(client: redis::Client, publisher_id: impl Into<String>) -> Self {
+        let publisher_id = PublisherId::new(publisher_id);
+        PublisherClient {
+            client,
+            publisher_id,
+        }
     }
 }
 
@@ -104,6 +109,7 @@ impl PublisherClient {
     /// Create a new publisher
     pub async fn publisher(&self) -> Publisher {
         let client = self.client.clone();
+        let publisher_id = self.publisher_id.clone();
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
 
@@ -132,10 +138,12 @@ impl PublisherClient {
                     }) = rx.recv().await
                     {
                         let key = StreamName::from(topic);
+                        let b64_data = b64_data.as_str();
 
-                        if let Err(err) =
-                            push(&mut con, &key, b64_data.as_str(), &schema, &id).await
-                        {
+                        let res =
+                            push(&mut con, &key, b64_data, &schema, &id, &publisher_id.0).await;
+
+                        if let Err(err) = res {
                             warn!("{:?}", err);
                             if err.is_io_error() {
                                 break;
@@ -156,6 +164,7 @@ async fn push(
     payload: &str,
     schema: &str,
     hedwig_id: &str,
+    publisher_id: &str,
 ) -> RedisResult<()> {
     // TODO trimming mode should not be needed if everything is set up correctly
     // Workaround to prevent increasing indefinitely the queue
@@ -170,9 +179,6 @@ async fn push(
         .as_millis()
         .to_string();
 
-    // TODO get publisher name from configuration
-    let publisher = "unknown";
-
     con.xadd_options(
         &key.0,
         "*",
@@ -181,13 +187,22 @@ async fn push(
             FORMAT_VERSION_ATTR,
             (ID_KEY, hedwig_id),
             (MESSAGE_TIMESTAMP_KEY, &message_timestamp),
-            (PUBLISHER_KEY, publisher),
+            (PUBLISHER_KEY, publisher_id),
             (SCHEMA_KEY, schema),
             ENCODING_ATTR,
         ],
         &options,
     )
     .await
+}
+
+#[derive(Debug, Clone)]
+struct PublisherId(String);
+
+impl PublisherId {
+    fn new(s: impl Into<String>) -> Self {
+        Self(s.into())
+    }
 }
 
 /// Redis publisher
