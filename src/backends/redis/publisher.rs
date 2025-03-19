@@ -120,6 +120,10 @@ impl PublisherClient {
                 .await;
 
                 if let Ok(mut con) = con_res {
+                    if rx.is_closed() {
+                        break;
+                    }
+
                     while let Some(EncodedMessage {
                         id,
                         topic,
