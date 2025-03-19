@@ -18,7 +18,8 @@ const PUBLISHER_KEY: &str = "hedwig_publisher";
 const ENCODING_ATTR: (&str, &str) = ("hedwig_encoding", "base64");
 const FORMAT_VERSION_ATTR: (&str, &str) = ("hedwig_format_version", "1.0");
 
-const BACKOFF_MAX_DELAY: Duration = Duration::from_secs(300);
+// TODO Keep BACKOFF_MAX_DELAY as default, but should be a configuration option
+const BACKOFF_MAX_DELAY: Duration = Duration::from_secs(60);
 
 fn connection_manager_config() -> ConnectionManagerConfig {
     ConnectionManagerConfig::new()
