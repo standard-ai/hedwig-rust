@@ -113,12 +113,13 @@ impl PublisherClient {
                     break;
                 }
 
-                if let Ok(mut con) = ConnectionManager::new_with_config(
+                let con_res = ConnectionManager::new_with_config(
                     client.clone(),
                     super::connection_manager_config(),
                 )
-                .await
-                {
+                .await;
+
+                if let Ok(mut con) = con_res {
                     while let Some(EncodedMessage {
                         id,
                         topic,
