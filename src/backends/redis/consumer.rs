@@ -27,13 +27,6 @@ pub struct ConsumerClient {
     client: redis::Client,
 }
 
-impl ConsumerClient {
-    /// Create a consumer client from a redis Client
-    pub fn from_client(client: redis::Client) -> Self {
-        ConsumerClient { client }
-    }
-}
-
 async fn xgroup_create_mkstream(
     con: &mut MultiplexedConnection,
     stream_name: &StreamName,
@@ -56,6 +49,11 @@ async fn xread(
 }
 
 impl ConsumerClient {
+    /// Create a consumer client from a redis Client
+    pub fn from_client(client: redis::Client) -> Self {
+        ConsumerClient { client }
+    }
+
     /// Create a consumer group
     pub async fn create_consumer_group(&mut self, config: &Group) -> RedisResult<()> {
         let mut con = self.client.get_multiplexed_async_connection().await?;
@@ -100,6 +98,10 @@ impl ConsumerClient {
                 .await
                 {
                     loop {
+                        if tx.is_closed() {
+                            break;
+                        }
+
                         // Read from the stream
 
                         let result: RedisResult<StreamReadReply> =
@@ -160,6 +162,7 @@ impl ConsumerClient {
         RedisStream { receiver: rx }
     }
 }
+
 /// A message received from Redis
 pub type RedisMessage<T> = crate::consumer::AcknowledgeableMessage<AcknowledgeToken, T>;
 
@@ -254,14 +257,20 @@ impl crate::consumer::AcknowledgeToken for AcknowledgeToken {
     type NackError = AcknowledgeError;
 
     async fn ack(self) -> Result<(), Self::AckError> {
+        // no-op because noack option is enabled
+        // TODO Implement reliability
         Ok(())
     }
 
     async fn nack(self) -> Result<(), Self::NackError> {
+        // no-op because noack option is enabled
+        // TODO Implement reliability
         Ok(())
     }
 
     async fn modify_deadline(&mut self, _seconds: u32) -> Result<(), Self::ModifyError> {
+        // no-op because noack option is enabled
+        // TODO Implement reliability
         Ok(())
     }
 }
