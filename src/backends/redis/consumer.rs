@@ -10,7 +10,6 @@ use redis::{
 use std::{
     pin::Pin,
     task::{Context, Poll},
-    time::SystemTime,
 };
 use tracing::warn;
 
