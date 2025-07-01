@@ -112,4 +112,20 @@ struct EncodedMessage {
     topic: Topic,
     schema: std::borrow::Cow<'static, str>,
     b64_data: String,
+    timestamp: std::time::SystemTime,
+}
+
+fn decode_timestamp(s: &[u8]) -> std::time::SystemTime {
+    std::str::from_utf8(s)
+        .ok()
+        .and_then(|str_val| str_val.parse::<u64>().ok())
+        .map(|millis| std::time::UNIX_EPOCH + std::time::Duration::from_millis(millis))
+        .unwrap_or(std::time::UNIX_EPOCH)
+}
+
+fn encode_timestamp(t: &std::time::SystemTime) -> String {
+    t.duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .to_string()
 }
