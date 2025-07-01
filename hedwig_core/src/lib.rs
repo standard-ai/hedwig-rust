@@ -13,4 +13,3 @@ pub type Headers = std::collections::BTreeMap<String, String>;
 
 /// A validated message.
 pub type ValidatedMessage = message::ValidatedMessage<bytes::Bytes>;
-
