@@ -1,3 +1,10 @@
+use crate::{
+    redis::{
+        decode_timestamp, EncodedMessage, StreamName, ID_KEY, MESSAGE_TIMESTAMP_KEY, PAYLOAD_KEY,
+        SCHEMA_KEY,
+    },
+    Headers, ValidatedMessage,
+};
 use async_trait::async_trait;
 use futures_util::stream;
 use hedwig_core::Topic;
@@ -12,13 +19,6 @@ use std::{
     task::{Context, Poll},
 };
 use tracing::warn;
-
-use crate::{
-    redis::{decode_timestamp, ID_KEY, PAYLOAD_KEY, SCHEMA_KEY},
-    Headers, ValidatedMessage,
-};
-
-use super::{EncodedMessage, StreamName, MESSAGE_TIMESTAMP_KEY};
 
 /// Redis consumer client
 #[derive(Debug, Clone)]
