@@ -2,6 +2,8 @@
 //!
 //! [0]: https://cloud.google.com/pubsub/
 
+#![allow(clippy::result_large_err)]
+
 use crate::{Headers, ValidatedMessage};
 use async_trait::async_trait;
 use futures_util::stream;

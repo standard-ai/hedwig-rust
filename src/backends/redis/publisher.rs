@@ -16,8 +16,8 @@ use tracing::warn;
 use crate::{redis::EncodedMessage, EncodableMessage};
 
 use super::{
-    RedisError, FORMAT_VERSION_ATTR, ID_KEY, MESSAGE_TIMESTAMP_KEY, PAYLOAD_KEY, PUBLISHER_KEY,
-    SCHEMA_KEY,
+    encode_timestamp, RedisError, FORMAT_VERSION_ATTR, ID_KEY, MESSAGE_TIMESTAMP_KEY, PAYLOAD_KEY,
+    PUBLISHER_KEY, SCHEMA_KEY,
 };
 use super::{StreamName, ENCODING_ATTR};
 
@@ -135,13 +135,22 @@ impl PublisherClient {
                         topic,
                         b64_data,
                         schema,
+                        timestamp,
                     }) = rx.recv().await
                     {
                         let key = StreamName::from(topic);
                         let b64_data = b64_data.as_str();
 
-                        let res =
-                            push(&mut con, &key, b64_data, &schema, &id, &publisher_id.0).await;
+                        let res = push(
+                            &mut con,
+                            &key,
+                            b64_data,
+                            &schema,
+                            &id,
+                            &publisher_id.0,
+                            timestamp,
+                        )
+                        .await;
 
                         if let Err(err) = res {
                             warn!("{:?}", err);
@@ -165,6 +174,7 @@ async fn push(
     schema: &str,
     hedwig_id: &str,
     publisher_id: &str,
+    timestamp: std::time::SystemTime,
 ) -> RedisResult<()> {
     // TODO trimming mode should not be needed if everything is set up correctly
     // Workaround to prevent increasing indefinitely the queue
@@ -173,11 +183,7 @@ async fn push(
         1_000,
     ));
 
-    let message_timestamp: String = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-        .to_string();
+    let timestamp = encode_timestamp(&timestamp);
 
     con.xadd_options(
         &key.0,
@@ -186,7 +192,7 @@ async fn push(
             (PAYLOAD_KEY, payload),
             FORMAT_VERSION_ATTR,
             (ID_KEY, hedwig_id),
-            (MESSAGE_TIMESTAMP_KEY, &message_timestamp),
+            (MESSAGE_TIMESTAMP_KEY, &timestamp),
             (PUBLISHER_KEY, publisher_id),
             (SCHEMA_KEY, schema),
             ENCODING_ATTR,
@@ -296,12 +302,14 @@ where
     // Encode as base64, because Redis needs it
     let b64_data = base64::engine::general_purpose::STANDARD.encode(bytes);
     let id = validated.uuid().to_string();
+    let timestamp = *validated.timestamp();
 
     Ok(EncodedMessage {
         id,
         schema,
         topic: message.topic(),
         b64_data,
+        timestamp,
     })
 }
 

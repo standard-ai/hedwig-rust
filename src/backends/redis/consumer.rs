@@ -1,3 +1,10 @@
+use crate::{
+    redis::{
+        decode_timestamp, EncodedMessage, StreamName, ID_KEY, MESSAGE_TIMESTAMP_KEY, PAYLOAD_KEY,
+        SCHEMA_KEY,
+    },
+    Headers, ValidatedMessage,
+};
 use async_trait::async_trait;
 use futures_util::stream;
 use hedwig_core::Topic;
@@ -10,16 +17,8 @@ use redis::{
 use std::{
     pin::Pin,
     task::{Context, Poll},
-    time::SystemTime,
 };
 use tracing::warn;
-
-use crate::{
-    redis::{ID_KEY, PAYLOAD_KEY, SCHEMA_KEY},
-    Headers, ValidatedMessage,
-};
-
-use super::{EncodedMessage, StreamName};
 
 /// Redis consumer client
 #[derive(Debug, Clone)]
@@ -116,10 +115,12 @@ impl ConsumerClient {
                                             Some(redis::Value::BulkString(b64_data)),
                                             Some(redis::Value::BulkString(schema)),
                                             Some(redis::Value::BulkString(id)),
+                                            Some(redis::Value::BulkString(timestamp)),
                                         ) = (
                                             message.map.get(PAYLOAD_KEY),
                                             message.map.get(SCHEMA_KEY),
                                             message.map.get(ID_KEY),
+                                            message.map.get(MESSAGE_TIMESTAMP_KEY),
                                         ) {
                                             let schema = String::from_utf8(schema.clone())
                                                 .expect("Expecting utf8 encoded schema")
@@ -130,12 +131,15 @@ impl ConsumerClient {
                                             let id = String::from_utf8(id.clone())
                                                 .expect("Expecting utf8 encoded id");
 
+                                            let timestamp = decode_timestamp(timestamp);
+
                                             if let Err(err) = tx
                                                 .send(EncodedMessage {
                                                     id,
                                                     schema,
                                                     topic,
                                                     b64_data,
+                                                    timestamp,
                                                 })
                                                 .await
                                             {
@@ -236,7 +240,7 @@ fn redis_to_hedwig(encoded_message: EncodedMessage) -> Result<ValidatedMessage, 
         .map_err(|_| RedisStreamError::MalformedMessage)?;
 
     let id = uuid::Uuid::new_v4();
-    let timestamp = SystemTime::now();
+    let timestamp = encoded_message.timestamp;
     let headers = Headers::new();
 
     Ok(ValidatedMessage::new(id, timestamp, schema, headers, data))
