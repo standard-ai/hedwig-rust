@@ -590,7 +590,7 @@ dependencies = [
 
 [[package]]
 name = "hedwig"
-version = "7.2.0"
+version = "7.2.1"
 dependencies = [
  "async-channel",
  "async-trait",
