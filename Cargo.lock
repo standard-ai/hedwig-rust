@@ -590,7 +590,7 @@ dependencies = [
 
 [[package]]
 name = "hedwig"
-version = "7.2.1"
+version = "7.2.3"
 dependencies = [
  "async-channel",
  "async-trait",
@@ -2533,9 +2533,7 @@ checksum = "1e9df38ee2d2c3c5948ea468a8406ff0db0b29ae1ffde1bcf20ef305bcc95c51"
 
 [[package]]
 name = "ya-gcp"
-version = "0.11.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "acaf2e321fc6f853572b372962fa253cba1b62a0025116bb463ce3c00b4394dc"
+version = "0.13.0"
 dependencies = [
  "async-stream",
  "cfg-if",
@@ -2553,6 +2551,7 @@ dependencies = [
  "rustls 0.21.12",
  "rustls-native-certs",
  "serde",
+ "serde_json",
  "tempdir",
  "thiserror",
  "tokio",
