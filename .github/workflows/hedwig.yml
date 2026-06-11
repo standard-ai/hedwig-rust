@@ -12,7 +12,7 @@ on:
     branches:
     - master
   pull_request:
-    types: [opened, repoened, synchronize]
+    types: [opened, reopened, synchronize]
 
 jobs:
   lint:
@@ -50,6 +50,8 @@ jobs:
           RUSTDOCFLAGS: --cfg docsrs -Dmissing_docs -Drustdoc::broken_intra_doc_links
 
   test:
+    # Branch protection requires this exact name; toolchain is pinned via RUST_STABLE / matrix.
+    name: test (stable, ubuntu-latest)
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
