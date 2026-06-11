@@ -1,5 +1,9 @@
 name: Test hedwig
 
+# Must match `rust-toolchain.toml` when bumping Rust.
+env:
+  RUST_STABLE: "1.88.0"
+
 on:
   push:
     paths-ignore:
@@ -21,7 +25,7 @@ jobs:
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
-            toolchain: stable
+            toolchain: ${{ env.RUST_STABLE }}
             profile: minimal
             components: clippy
             default: true
@@ -39,7 +43,7 @@ jobs:
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
-            toolchain: nightly
+            toolchain: ${{ env.RUST_STABLE }}
             profile: minimal
             default: true
       - name: Doc
@@ -55,7 +59,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rust_toolchain: [nightly, stable, 1.81.0]
+        rust_toolchain: ["1.88.0"]
         os: [ubuntu-latest]
     timeout-minutes: 20
     steps:
