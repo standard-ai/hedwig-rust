@@ -50,21 +50,21 @@ jobs:
           RUSTDOCFLAGS: --cfg docsrs -Dmissing_docs -Drustdoc::broken_intra_doc_links
 
   test:
-    # Branch protection requires this exact name; toolchain is pinned via RUST_STABLE / matrix.
-    name: test (stable, ubuntu-latest)
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        rust_toolchain: ["1.88.0"]
+        # Label must stay `stable` so the check name matches branch protection:
+        # test (stable, ubuntu-latest). Toolchain is pinned via RUST_STABLE below.
+        rust_toolchain: [stable]
         os: [ubuntu-latest]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v2
-      - name: Install Rust ${{ matrix.rust_toolchain }}
+      - name: Install Rust ${{ env.RUST_STABLE }}
         uses: actions-rs/toolchain@v1
         with:
-            toolchain: ${{ matrix.rust_toolchain }}
+            toolchain: ${{ env.RUST_STABLE }}
             profile: minimal
             default: true
       - name: Build without features
