@@ -1,5 +1,9 @@
 name: Test hedwig
 
+# Must match `rust-toolchain.toml` when bumping Rust.
+env:
+  RUST_STABLE: "1.88.0"
+
 on:
   push:
     paths-ignore:
@@ -8,7 +12,7 @@ on:
     branches:
     - master
   pull_request:
-    types: [opened, repoened, synchronize]
+    types: [opened, reopened, synchronize]
 
 jobs:
   lint:
@@ -21,7 +25,7 @@ jobs:
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
-            toolchain: stable
+            toolchain: ${{ env.RUST_STABLE }}
             profile: minimal
             components: clippy
             default: true
@@ -36,17 +40,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v2
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
+      # `#![cfg_attr(docsrs, feature(doc_cfg))]` requires nightly when RUSTDOCFLAGS enables docsrs.
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-            toolchain: nightly
-            profile: minimal
-            default: true
+          toolchain: nightly-2026-02-27
       - name: Doc
-        uses: actions-rs/cargo@v1
-        with:
-          command: doc
-          args: --all-features --manifest-path=Cargo.toml --no-deps
+        run: cargo doc --all-features --manifest-path=Cargo.toml --no-deps
         env:
           RUSTDOCFLAGS: --cfg docsrs -Dmissing_docs -Drustdoc::broken_intra_doc_links
 
@@ -55,15 +54,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rust_toolchain: [nightly, stable, 1.81.0]
+        # Label must stay `stable` so the check name matches branch protection:
+        # test (stable, ubuntu-latest). Toolchain is pinned via RUST_STABLE below.
+        rust_toolchain: [stable]
         os: [ubuntu-latest]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v2
-      - name: Install Rust ${{ matrix.rust_toolchain }}
+      - name: Install Rust ${{ env.RUST_STABLE }}
         uses: actions-rs/toolchain@v1
         with:
-            toolchain: ${{ matrix.rust_toolchain }}
+            toolchain: ${{ env.RUST_STABLE }}
             profile: minimal
             default: true
       - name: Build without features
